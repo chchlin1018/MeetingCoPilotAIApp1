@@ -1,0 +1,20 @@
+{
+  "name": "meetingcopilot-notebooklm-bridge",
+  "version": "1.0.0",
+  "description": "Local HTTP bridge between MeetingCopilot iOS/macOS app and NotebookLM",
+  "main": "bridge-server.js",
+  "scripts": {
+    "start": "node bridge-server.js",
+    "dev": "node bridge-server.js --mock",
+    "test": "node test-bridge.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "puppeteer": "^22.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
