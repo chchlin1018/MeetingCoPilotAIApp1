@@ -1,14 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3 — 雙串流 Coordinator + SwiftData Persistence
-// ═══════════════════════════════════════════════════════════════════════════
-//
-//  v4.3 完整功能：
-//  - 雙串流說話者分離 (.remote / .local)
-//  - SwiftData 會議記錄持久化（startMeeting 建立 / stopMeeting 存入）
-//  - Transcript + Card 即時存入 DB
-//
-//  Platform: macOS 14.0+
+// MeetingCopilot v4.3 — 雙串流 Coordinator + Structured Transcript
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -23,6 +15,7 @@ final class MeetingAICoordinator {
     private(set) var cards: [AICard] = []
     private(set) var fullTranscript: String = ""
     private(set) var recentTranscript: String = ""
+    private(set) var transcriptEntries: [TranscriptEntry] = []   // ★ 分色用
     private(set) var captureState: AudioCaptureState = .idle
     private(set) var activeEngineType: AudioCaptureEngineType?
     private(set) var talkingPoints: [TalkingPoint] = []
@@ -42,7 +35,6 @@ final class MeetingAICoordinator {
     private var strategyTask: Task<Void, Never>?
     private var tpUpdateTask: Task<Void, Never>?
 
-    // ★ Persistence
     private var currentSessionRecord: MeetingSessionRecord?
     private let modelContext: ModelContext
 
@@ -54,7 +46,6 @@ final class MeetingAICoordinator {
         self.modelContext = ModelContext(MeetingDataStore.container)
     }
 
-    // MARK: 會前設定
     func loadKnowledgeBase(_ items: [QAItem]) async {
         await orchestrator.loadKnowledgeBase(items); stats.qaItemsLoaded = items.count
     }
@@ -64,7 +55,6 @@ final class MeetingAICoordinator {
     }
     func updateContext(_ context: MeetingContext) async { await orchestrator.updateContext(context) }
 
-    // MARK: 啟動會議
     func startMeeting(config: AudioCaptureConfiguration = .default) async {
         do {
             try await pipeline.start(config: config)
@@ -77,7 +67,6 @@ final class MeetingAICoordinator {
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
         await tpTracker.markMeetingStarted()
 
-        // ★ Persistence: 建立會議記錄
         let record = MeetingSessionRecord(
             startTime: Date(),
             engineType: activeEngineType?.rawValue ?? "unknown",
@@ -91,7 +80,6 @@ final class MeetingAICoordinator {
         stats.sessionStartTime = Date()
     }
 
-    // MARK: 停止會議
     func stopMeeting() async {
         pipelineConsumerTask?.cancel(); eventConsumerTask?.cancel()
         strategyTask?.cancel(); tpUpdateTask?.cancel()
@@ -101,7 +89,6 @@ final class MeetingAICoordinator {
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
 
-        // ★ Persistence: 存入會議統計
         if let record = currentSessionRecord {
             record.updateFromStats(stats, tpStats: tpStats)
             try? modelContext.save()
@@ -109,7 +96,6 @@ final class MeetingAICoordinator {
         currentSessionRecord = nil
     }
 
-    // MARK: 手動操作
     func manualQuery(_ question: String) async {
         let t = await pipeline.fullTranscript
         await orchestrator.manualQuery(question, fullTranscript: t)
@@ -128,7 +114,9 @@ final class MeetingAICoordinator {
                 self.fullTranscript = update.fullText
                 self.recentTranscript = update.recentText
 
-                // ★ Persistence: 存入逐字稿
+                // ★ 同步 structured entries
+                self.transcriptEntries = await self.pipeline.transcriptEntries
+
                 if let record = self.currentSessionRecord, update.segment.text.count > 10 {
                     let tr = TranscriptRecord(timestamp: update.segment.timestamp,
                         text: update.segment.text, speaker: update.speaker.rawValue,
@@ -162,7 +150,6 @@ final class MeetingAICoordinator {
                 case .cardInserted(let card):
                     self.cards = await self.orchestrator.cards
                     self.stats = await self.orchestrator.stats
-                    // ★ Persistence: 存入卡片（Float → Double 轉型）
                     if let record = self.currentSessionRecord {
                         let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue,
                             title: card.title, content: card.content,
