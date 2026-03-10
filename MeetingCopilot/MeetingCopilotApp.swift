@@ -1,7 +1,7 @@
 // MeetingCopilotApp.swift
-// MeetingCopilot v4.2
+// MeetingCopilot v4.3
 //
-// App Entry Point + API Key Setup Flow
+// App Entry Point + API Key Setup Flow (Claude + Notion)
 // macOS 14.0+ (Sonoma)
 // Copyright © 2025 MacroVision Systems
 
@@ -18,11 +18,10 @@ struct MeetingCopilotApp: App {
                 MeetingTeleprompterView()
                     .frame(minWidth: 1200, minHeight: 700)
 
-                // 首次啟動或 API Key 未設定時顯示設定畫面
                 if showSettings {
                     Color.black.opacity(0.6).ignoresSafeArea()
                     APIKeySettingsView(isPresented: $showSettings)
-                        .frame(width: 500, height: 420)
+                        .frame(width: 520, height: 520)
                         .background(.ultraThinMaterial)
                         .cornerRadius(16)
                         .shadow(radius: 20)
@@ -71,23 +70,22 @@ struct APIKeySettingsView: View {
     @Binding var isPresented: Bool
 
     @State private var claudeAPIKey: String = KeychainManager.load(key: .claudeAPIKey) ?? ""
+    @State private var notionAPIKey: String = KeychainManager.load(key: .notionAPIKey) ?? ""    // ★
     @State private var notebookId: String = KeychainManager.load(key: .notebookLMNotebookId) ?? ""
     @State private var bridgeURL: String = KeychainManager.load(key: .notebookLMBridgeURL) ?? "http://localhost:3210"
     @State private var saveStatus: String = ""
     @State private var isValid: Bool = false
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             // 標題
             VStack(spacing: 4) {
                 Image(systemName: "key.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(.purple)
+                    .font(.system(size: 32)).foregroundColor(.purple)
                 Text("MeetingCopilot 設定")
                     .font(.system(size: 18, weight: .bold))
                 Text("API Key 安全儲存於 macOS Keychain")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 12)).foregroundColor(.secondary)
             }
             .padding(.top, 8)
 
@@ -95,10 +93,8 @@ struct APIKeySettingsView: View {
                 // Claude API Key (必填)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Claude API Key")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("必填")
-                            .font(.system(size: 9, weight: .bold))
+                        Text("Claude API Key").font(.system(size: 12, weight: .semibold))
+                        Text("必填").font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Color.red).cornerRadius(3)
@@ -109,14 +105,32 @@ struct APIKeySettingsView: View {
                         .onChange(of: claudeAPIKey) { _, _ in validateInput() }
                 }
 
+                // ★ Notion API Key (建議)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Notion API Key").font(.system(size: 12, weight: .semibold))
+                        Text("建議").font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.blue).cornerRadius(3)
+                        Text("第二層 RAG 知識檢索")
+                            .font(.system(size: 9)).foregroundColor(.gray)
+                    }
+                    SecureField("ntn_... or secret_...", text: $notionAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13, design: .monospaced))
+                    Text("到 notion.so/profile/integrations 建立 Integration 取得")
+                        .font(.system(size: 9)).foregroundColor(.gray.opacity(0.6))
+                }
+
+                Divider().background(Color.gray.opacity(0.3))
+
                 // NotebookLM Notebook ID (選填)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("NotebookLM Notebook ID")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("選填")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
+                        Text("NotebookLM Notebook ID").font(.system(size: 12, weight: .semibold))
+                        Text("選填").font(.system(size: 9)).foregroundColor(.secondary)
+                        Text("備用方案").font(.system(size: 9)).foregroundColor(.gray.opacity(0.5))
                     }
                     TextField("notebook_abc123", text: $notebookId)
                         .textFieldStyle(.roundedBorder)
@@ -126,11 +140,8 @@ struct APIKeySettingsView: View {
                 // Bridge URL (選填)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("NotebookLM Bridge URL")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("選填")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
+                        Text("NotebookLM Bridge URL").font(.system(size: 12, weight: .semibold))
+                        Text("選填").font(.system(size: 9)).foregroundColor(.secondary)
                     }
                     TextField("http://localhost:3210", text: $bridgeURL)
                         .textFieldStyle(.roundedBorder)
@@ -139,22 +150,17 @@ struct APIKeySettingsView: View {
             }
             .padding(.horizontal, 24)
 
-            // 狀態訊息
             if !saveStatus.isEmpty {
                 Text(saveStatus)
                     .font(.system(size: 12))
                     .foregroundColor(saveStatus.contains("✅") ? .green : .orange)
             }
 
-            // 按鈕
             HStack(spacing: 12) {
                 if KeychainManager.hasClaudeAPIKey {
-                    Button("Cancel") {
-                        isPresented = false
-                    }
+                    Button("Cancel") { isPresented = false }
                     .keyboardShortcut(.escape)
                 }
-
                 Button(action: saveAndClose) {
                     HStack(spacing: 6) {
                         Image(systemName: "lock.shield")
@@ -179,10 +185,11 @@ struct APIKeySettingsView: View {
 
     private func saveAndClose() {
         let ok1 = KeychainManager.save(key: .claudeAPIKey, value: claudeAPIKey)
-        let ok2 = KeychainManager.save(key: .notebookLMNotebookId, value: notebookId)
-        let ok3 = KeychainManager.save(key: .notebookLMBridgeURL, value: bridgeURL)
+        let ok2 = KeychainManager.save(key: .notionAPIKey, value: notionAPIKey)         // ★
+        let ok3 = KeychainManager.save(key: .notebookLMNotebookId, value: notebookId)
+        let ok4 = KeychainManager.save(key: .notebookLMBridgeURL, value: bridgeURL)
 
-        if ok1 && ok2 && ok3 {
+        if ok1 && ok2 && ok3 && ok4 {
             saveStatus = "✅ 已安全儲存到 macOS Keychain"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 isPresented = false
