@@ -1,7 +1,7 @@
 // MeetingCopilotApp.swift
-// MeetingCopilot v4.1
+// MeetingCopilot v4.2
 //
-// App Entry Point
+// App Entry Point + API Key Setup Flow
 // macOS 14.0+ (Sonoma)
 // Copyright © 2025 MacroVision Systems
 
@@ -10,16 +10,36 @@ import SwiftUI
 @main
 struct MeetingCopilotApp: App {
 
+    @State private var showSettings = !KeychainManager.hasClaudeAPIKey
+
     var body: some Scene {
         WindowGroup {
-            MeetingTeleprompterView()
-                .frame(minWidth: 1200, minHeight: 700)
+            ZStack {
+                MeetingTeleprompterView()
+                    .frame(minWidth: 1200, minHeight: 700)
+
+                // 首次啟動或 API Key 未設定時顯示設定畫面
+                if showSettings {
+                    Color.black.opacity(0.6).ignoresSafeArea()
+                    APIKeySettingsView(isPresented: $showSettings)
+                        .frame(width: 500, height: 420)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(16)
+                        .shadow(radius: 20)
+                }
+            }
         }
         .windowStyle(.titleBar)
         .defaultSize(width: 1400, height: 800)
         .commands {
-            // 自定義選單
             CommandGroup(after: .appInfo) {
+                Button("API Key Settings...") {
+                    showSettings = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
+
+                Divider()
+
                 Button("Check NotebookLM Bridge...") {
                     checkBridgeHealth()
                 }
@@ -28,7 +48,6 @@ struct MeetingCopilotApp: App {
         }
     }
 
-    /// 檢查 NotebookLM Bridge 是否運行中
     private func checkBridgeHealth() {
         Task {
             guard let url = URL(string: "http://localhost:3210/health") else { return }
@@ -41,8 +60,135 @@ struct MeetingCopilotApp: App {
                 }
             } catch {
                 print("❌ NotebookLM Bridge not running: \(error.localizedDescription)")
-                print("💡 Start with: cd bridge && npm run dev")
             }
+        }
+    }
+}
+
+// MARK: - API Key 設定畫面
+
+struct APIKeySettingsView: View {
+    @Binding var isPresented: Bool
+
+    @State private var claudeAPIKey: String = KeychainManager.load(key: .claudeAPIKey) ?? ""
+    @State private var notebookId: String = KeychainManager.load(key: .notebookLMNotebookId) ?? ""
+    @State private var bridgeURL: String = KeychainManager.load(key: .notebookLMBridgeURL) ?? "http://localhost:3210"
+    @State private var saveStatus: String = ""
+    @State private var isValid: Bool = false
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // 標題
+            VStack(spacing: 4) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(.purple)
+                Text("MeetingCopilot 設定")
+                    .font(.system(size: 18, weight: .bold))
+                Text("API Key 安全儲存於 macOS Keychain")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 8)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Claude API Key (必填)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Claude API Key")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("必填")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.red).cornerRadius(3)
+                    }
+                    SecureField("sk-ant-api03-...", text: $claudeAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13, design: .monospaced))
+                        .onChange(of: claudeAPIKey) { _, _ in validateInput() }
+                }
+
+                // NotebookLM Notebook ID (選填)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("NotebookLM Notebook ID")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("選填")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                    TextField("notebook_abc123", text: $notebookId)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13, design: .monospaced))
+                }
+
+                // Bridge URL (選填)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("NotebookLM Bridge URL")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("選填")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                    TextField("http://localhost:3210", text: $bridgeURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13, design: .monospaced))
+                }
+            }
+            .padding(.horizontal, 24)
+
+            // 狀態訊息
+            if !saveStatus.isEmpty {
+                Text(saveStatus)
+                    .font(.system(size: 12))
+                    .foregroundColor(saveStatus.contains("✅") ? .green : .orange)
+            }
+
+            // 按鈕
+            HStack(spacing: 12) {
+                if KeychainManager.hasClaudeAPIKey {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                    .keyboardShortcut(.escape)
+                }
+
+                Button(action: saveAndClose) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.shield")
+                        Text("儲存到 Keychain")
+                    }
+                    .frame(minWidth: 160)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+                .disabled(!isValid)
+                .keyboardShortcut(.return)
+            }
+            .padding(.bottom, 8)
+        }
+        .padding()
+        .onAppear { validateInput() }
+    }
+
+    private func validateInput() {
+        isValid = claudeAPIKey.hasPrefix("sk-ant-") && claudeAPIKey.count > 20
+    }
+
+    private func saveAndClose() {
+        let ok1 = KeychainManager.save(key: .claudeAPIKey, value: claudeAPIKey)
+        let ok2 = KeychainManager.save(key: .notebookLMNotebookId, value: notebookId)
+        let ok3 = KeychainManager.save(key: .notebookLMBridgeURL, value: bridgeURL)
+
+        if ok1 && ok2 && ok3 {
+            saveStatus = "✅ 已安全儲存到 macOS Keychain"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                isPresented = false
+            }
+        } else {
+            saveStatus = "⚠️ 儲存失敗，請檢查權限"
         }
     }
 }

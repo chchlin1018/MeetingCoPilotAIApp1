@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.2 — SwiftUI Usage Example
-// Updated for v4.2 architecture (uses DemoDataProvider)
+// Updated: Uses KeychainManager for API keys (no more hardcoded secrets)
 
 import SwiftUI
 
@@ -13,9 +13,13 @@ struct MeetingTeleprompterView: View {
     @State private var manualQuestion = ""
 
     init() {
+        // v4.2: Read API key from Keychain (no hardcoded secrets)
+        let apiKey = KeychainManager.claudeAPIKey ?? "NOT_CONFIGURED"
+        let nlmConfig = KeychainManager.notebookLMConfig
+
         _coordinator = State(initialValue: MeetingAICoordinator(
-            claudeAPIKey: "YOUR_API_KEY_HERE",
-            notebookLMConfig: .enabled(notebookId: "YOUR_NOTEBOOK_ID"),
+            claudeAPIKey: apiKey,
+            notebookLMConfig: nlmConfig,
             meetingContext: DemoDataProvider.umcMeetingContext
         ))
     }
@@ -52,6 +56,19 @@ struct MeetingTeleprompterView: View {
                 }
             }
             notebookLMStatusBadge
+
+            // API Key 狀態
+            if !KeychainManager.hasClaudeAPIKey {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 10))
+                    Text("API Key 未設定")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+            }
+
             Spacer()
             Text("UMC Digital Twin Meeting")
                 .font(.system(size: 13, weight: .semibold))
@@ -243,6 +260,18 @@ struct MeetingTeleprompterView: View {
                         .foregroundColor(coordinator.isNotebookLMAvailable ? .teal : .red.opacity(0.6))
                 }
             }
+            HStack {
+                Text("API Key").font(.system(size: 11)).foregroundColor(.gray)
+                Spacer()
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(KeychainManager.hasClaudeAPIKey ? Color.green : Color.red.opacity(0.6))
+                        .frame(width: 6, height: 6)
+                    Text(KeychainManager.hasClaudeAPIKey ? "Configured" : "Missing")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(KeychainManager.hasClaudeAPIKey ? .green : .red.opacity(0.6))
+                }
+            }
         }
     }
 
@@ -282,10 +311,8 @@ struct MeetingTeleprompterView: View {
     }
 
     private func loadDemoData() async {
-        // v4.2: Use DemoDataProvider (isolated demo data)
         await coordinator.loadKnowledgeBase(DemoDataProvider.umcQAItems)
         await coordinator.loadTalkingPoints(DemoDataProvider.umcTalkingPoints, meetingDurationMinutes: 60)
-        // Note: checkNotebookLMAvailability() is now called internally by startMeeting()
     }
 }
 
@@ -334,7 +361,6 @@ struct TalkingPointRow: View {
     private var isCompleted: Bool {
         talkingPoint.status == .completed || talkingPoint.status == .skipped
     }
-
     private var statusIcon: some View {
         Group {
             switch talkingPoint.status {
@@ -345,7 +371,6 @@ struct TalkingPointRow: View {
             }
         }
     }
-
     private var priorityBadge: some View {
         Text(talkingPoint.priority.rawValue)
             .font(.system(size: 8, weight: .bold, design: .monospaced))
@@ -353,13 +378,11 @@ struct TalkingPointRow: View {
             .padding(.horizontal, 3).padding(.vertical, 1)
             .background(priorityColor.opacity(0.15)).cornerRadius(2)
     }
-
     private var priorityColor: Color {
         switch talkingPoint.priority {
         case .must: return .red; case .should: return .yellow; case .nice: return .gray
         }
     }
-
     private var rowBackground: Color {
         switch talkingPoint.status {
         case .inProgress: return Color.blue.opacity(0.08)
@@ -374,7 +397,6 @@ struct TalkingPointRow: View {
 
 struct AICardView: View {
     let card: AICard
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -395,7 +417,6 @@ struct AICardView: View {
         .padding(12).background(cardBackground).cornerRadius(8)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 1))
     }
-
     private var titleColor: Color {
         switch card.type {
         case .qaMatch: return .cyan; case .aiGenerated: return .purple
