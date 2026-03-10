@@ -24,6 +24,7 @@
 		BB000000000000000000000F /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000012 /* KeychainManager.swift */; };
 		BB0000000000000000000010 /* MeetingSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000013 /* MeetingSessionStore.swift */; };
 		BB0000000000000000000011 /* MeetingPrepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000014 /* MeetingPrepView.swift */; };
+		BB0000000000000000000012 /* NotionRetrievalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000015 /* NotionRetrievalService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 		FF0000000000000000000012 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 		FF0000000000000000000013 /* MeetingSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSessionStore.swift; sourceTree = "<group>"; };
 		FF0000000000000000000014 /* MeetingPrepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepView.swift; sourceTree = "<group>"; };
+		FF0000000000000000000015 /* NotionRetrievalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotionRetrievalService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -77,6 +79,7 @@
 				FF0000000000000000000003 /* MicrophoneCaptureEngine.swift */,
 				FF0000000000000000000004 /* KeywordMatcherAndClaude.swift */,
 				FF0000000000000000000005 /* NotebookLMService.swift */,
+				FF0000000000000000000015 /* NotionRetrievalService.swift */,
 				FF0000000000000000000006 /* TalkingPointsTracker.swift */,
 				FF000000000000000000000E /* ProviderProtocols.swift */,
 				FF000000000000000000000F /* TranscriptPipeline.swift */,
@@ -186,6 +189,7 @@
 				BB0000000000000000000003 /* MicrophoneCaptureEngine.swift in Sources */,
 				BB0000000000000000000004 /* KeywordMatcherAndClaude.swift in Sources */,
 				BB0000000000000000000005 /* NotebookLMService.swift in Sources */,
+				BB0000000000000000000012 /* NotionRetrievalService.swift in Sources */,
 				BB0000000000000000000006 /* TalkingPointsTracker.swift in Sources */,
 				BB000000000000000000000B /* ProviderProtocols.swift in Sources */,
 				BB000000000000000000000C /* TranscriptPipeline.swift in Sources */,
@@ -328,7 +332,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -359,7 +363,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -367,7 +371,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MeetingCopilot;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2025 MacroVision Systems. All rights reserved.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "MeetingCopilot \U9700\U8981\U9ea5\U514b\U98a8\U6b0a\U9650\U4ee5\U64f7\U53d6\U6703\U8b70\U97f3\U8a0a\U4f5c\U70ba\U964d\U7d1a\u65b9\U6848";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "MeetingCopilot \U9700\U8981\U9ea5\U514b\U98a8\U6b0a\U9650\U4ee5\U64f7\U53d6\U6703\U8b70\U97f3\U8a0a\U4f5c\U70ba\U964d\U7d1a\U65b9\U6848";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "MeetingCopilot \U9700\U8981\U8a9e\U97f3\U8fa8\U8b58\U6b0a\U9650\U4ee5\U5373\U6642\U8f49\U9304\U6703\U8b70\U5167\U5bb9";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
