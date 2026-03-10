@@ -1,180 +1,141 @@
 # MeetingCopilot 開發待辦與演進路線圖
 
-> 最後更新：2026-03-10 | 版本：v4.3.0 build 4
+> 最後更新: 2026-03-10 | 版本: v4.3.0 (build 6)
 
----
-
-## 已完成 ✅
+## ✅ 已完成
 
 ### v4.0 — 雙引擎即時管線
 - [x] ScreenCaptureKit 系統音訊擷取
+- [x] MicrophoneCaptureEngine 降級方案
 - [x] Apple Speech 即時轉錄（Partial Results）
-- [x] 雙引擎自動降級（System → Microphone）
-- [x] 本地 Q&A 匹配（第一層）
-- [x] Claude Streaming 即時生成（第三層）
+- [x] 本地 Q&A 關鍵字匹配（< 200ms）
+- [x] Claude API Streaming 回應
 
 ### v4.1 — 三層管線 + TP 追蹤
-- [x] NotebookLM 即時查詢（第二層）
-- [x] Talking Points 追蹤（MUST / SHOULD / NICE）
+- [x] NotebookLM 即時查詢（第二層 RAG）
 - [x] NotebookLM Node.js Bridge（Mock + Puppeteer）
+- [x] Talking Points 追蹤（MUST/SHOULD/NICE）
+- [x] 時間壓力提醒（會議過半 MUST 未講）
 - [x] SwiftUI 完整 Demo UI
 - [x] Xcode Project 建立
 
-### v4.2 Week 1 — 架構拆分
+### v4.2 — 工程化重構
 - [x] God Object 拆分：Coordinator 650→280 行（-57%）
 - [x] TranscriptPipeline actor（音訊 + 轉錄 + 問題偵測）
 - [x] ResponseOrchestrator actor（三層管線 + 策略 + 卡片）
 - [x] Provider Protocol 抽象介面（3 個）
-- [x] DemoDataProvider 資料隔離
-- [x] API Key → macOS Keychain（KeychainManager + 設定 UI）
+- [x] DemoDataProvider 獨立化
+- [x] API Key → macOS Keychain（KeychainManager）
+- [x] 首次啟動 API Key 設定 UI
 
-### v4.3 — 雙串流 + 持久化 + 安全
-- [x] 雙串流說話者分離（System Audio = 對方 / Mic = 我方）
-- [x] SwiftData 會議記錄持久化（MeetingSessionRecord / TranscriptRecord / CardRecord）
-- [x] Coordinator 整合 Persistence（startMeeting 建立 / stopMeeting 存入 / 即時存轉錄+卡片）
-- [x] Bridge 安全加固（CORS localhost / shared secret / log redaction）
-- [x] XCTest 單元測試（4 組：KeywordMatcher / TP / QuestionDetector / Orchestrator）
-- [x] MeetingSessionStore.swift 加入 Xcode build target
-
----
-
-## 進行中 / 待確認 🟡
-
-### Xcode Test Target
-- [ ] 在 Xcode 中手動建立 MeetingCopilotTests target
-  - File → New → Target → Unit Testing Bundle
-  - 將 Tests/*.swift 加入 test target
-  - 確認 Host Application 設為 MeetingCopilot
-  - ⌘+U 執行測試
-
-### AICard.type.rawValue 相容性
-- [ ] 確認 AICard.AICardType 已實作 RawRepresentable (String)
-  - CardRecord 儲存時使用 card.type.rawValue
-  - 如果 enum 沒有 rawValue 會 build error
-
----
-
-## 下一步 P0 🔴
-
-### Evidence-based Card Model
-- [ ] AICard 升級：新增 `evidences: [SourceCitation]`
-- [ ] 新增 `inferenceType` enum（.localMatch / .ragPlusLLM / .llmOnly）
-- [ ] 新增 `isFactual: Bool`（原文事實 vs AI 推測）
-- [ ] 紫色卡片 UI 顯示「來源依據」標示
-- [ ] 卡片 pin / dismiss 狀態
-
-### Bridge 降級為 Optional Adapter
-- [ ] 實作 `LocalEmbeddingProvider`（用 NaturalLanguage.framework）
-- [ ] `KnowledgeRetrievalProvider` 可替換機制
-  - NotebookLMAdapter（現有，optional）
-  - LocalEmbeddingProvider（新，零依賴）
-  - PineconeProvider（未來企業版）
-- [ ] 沒有 Bridge 時系統仍可運作（跳過第二層）
-
-### 雙串流 UI 升級
-- [ ] 逐字稿面板：[對方] 白色 / [我方] 灰色 分色顯示
-- [ ] Header 顯示「雙串流 ✅」或「單串流 ⚠️」
-- [ ] TP 追蹤標示「✅ 偵測到我方已講」
+### v4.3 — 雙串流 + 個人測試可用
+- [x] **雙串流說話者分離**（SystemAudio=對方 / Mic=我方）
+- [x] .remote → 問題偵測 + 三層管線
+- [x] .local → TP 追蹤（偵測「我講了什麼」）
+- [x] 降級機制（雙引擎/單引擎/錯誤）
+- [x] **會前準備 UI**（MeetingPrepView）
+  - [x] 會議目標、參與者、Q&A、Talking Points 輸入
+  - [x] 會議類型選擇
+  - [x] 載入 Demo 資料
+  - [x] TXT 檔案儲存/讀取（可用文字編輯器修改）
+- [x] **語音辨識語言選擇**（zh-TW / en-US / en-GB / zh-CN / ja-JP）
+- [x] **會後儲存**（逐字稿 + AI 卡片 + TP 狀態 + 統計 → TXT）
+- [x] **Notion RAG 取代 NotebookLM**（NotionRetrievalService）
+  - [x] Notion REST API 搜尋 + block content 擷取
+  - [x] 多關鍵字展開（「成本」→ ["ROI", "投資", "payback"]）
+  - [x] Notion 優先 → NotebookLM fallback → 跳過
+  - [x] Notion API Key 存入 Keychain
+  - [x] 設定 UI 加入 Notion API Key 欄位
+- [x] SwiftData Persistence 模型（MeetingSessionRecord / TranscriptRecord / CardRecord）
+- [x] XCTest 單元測試（4 組）
+- [x] Header 顯示雙串流狀態 + 語言 badge
 
 ---
 
-## P1 — 一個版本內 🟡
+## 🔜 下一步（v4.4）
 
-### 會後回看
-- [ ] Session History 頁面（列出所有歷史會議）
-- [ ] Session Detail 頁面（逐字稿 + 卡片 + TP 完成率 + 統計）
-- [ ] Transcript replay（時間軸播放）
+### P0 — 影響測試品質
+- [ ] **Notion 多關鍵字展開：用 Claude 快速 API call**
+  - 目前用靜態對照表，應改為 Claude 動態展開
+  - 「AVEVA 定價策略」→ Claude 展開 → ["AVEVA", "pricing", "license", "定價", "年費"]
+- [ ] **雙串流 UI 分色**
+  - 逐字稿面板：[對方] 白色 / [我方] 灰色/青色 分色顯示
+  - TP 追蹤標示「✅ 偵測到我方已講」
 
-### Structured Logging / Telemetry
-- [ ] 三層管線命中率 histogram
-- [ ] 雙串流 remote/local 分佈比例
-- [ ] 每 session Claude 花費追蹤
-- [ ] 延遲 P50/P90/P99
+### P1 — 影響 pilot 品質
+- [ ] **Evidence-based Card Model**
+  - AICard 加 `evidences: [SourceCitation]`
+  - `inferenceType: .localMatch / .ragPlusLLM / .llmOnly`
+  - `isFactual: Bool`（原文事實 vs AI 推測）
+  - UI 顯示來源依據標示
+- [ ] **Notion page tags 搜尋增強**
+  - 每個 Notion page 加 tags property
+  - 搜尋時同時搜 title + tags + fullText
+- [ ] **Structured Logging / Telemetry**
+  - 三層管線命中率追蹤
+  - 延遲 histogram
+  - Notion vs NotebookLM 命中比較
 
-### 資料流透明 UI
-- [ ] 標示哪些資料送了 Claude、哪些留本地
-- [ ] 會議開始時顯示 consent / recording indicator
-- [ ] Session 結束即清空暫存（可選）
-
-### 動態降級機制
-- [ ] 電量/算力充足 → Local Whisper
-- [ ] 低耗電模式 → Cloud STT API
-- [ ] 自動偵測並切換
+### P2 — 品質改善
+- [ ] **錯誤處理 UI**
+  - ScreenCaptureKit 權限被拒 → 顯示授權提示
+  - Speech Recognition 權限被拒 → 顯示授權提示
+  - Notion API 失敗 → 顯示提示（不影響第一/三層）
+- [ ] **會前準備 UI 改進**
+  - 最近使用的 TXT 檔案列表
+  - Q&A 從 Notion 自動匯入
+  - TalkingPoints 從上次會議記錄延續
 
 ---
 
-## P2 — 產品化前 🔵
+## 🔮 未來版本
 
-### Speaker Diarization（面對面場景）
-- [ ] 雙串流已解決 90%+ 線上會議場景
-- [ ] 面對面會議需要 ML 模型（WhisperKit + speaker embedding）
-- [ ] 評估端側算力消耗對筆電續航/發熱的影響
+### v5.0 — 產品化
+- [ ] **Speaker Diarization**（面對面會議場景）
+  - 雙串流解決 90%+ 遠端會議
+  - 面對面需要 ML 模型（WhisperKit + speaker embedding）
+- [ ] **WhisperKit 離線引擎**
+  - 本地端語音辨識（不送雲端）
+  - 動態降級：電量充足 → local Whisper / 低電量 → Apple Speech
+- [ ] **資料流透明 UI**
+  - 標示哪些資料送了 Claude、哪些留本地
+  - consent / recording indicator
+- [ ] **Action Item 自動擷取**
+  - 從逐字稿偵測 action items
+  - 會後自動整理成任務列表
+- [ ] **CRM 預載整合**
+  - 會前自動從 Salesforce / HubSpot 載入客戶歷史
+  - 結合行事曆 API 自動預載
 
-### Action Item 自動擷取
-- [ ] 從逐字稿中擷取待辦事項
-- [ ] 與 CRM / 行事曆整合
-- [ ] Follow-up draft 自動產生
-
-### WhisperKit 離線引擎
-- [ ] 替換 Apple Speech 作為 TranscriptProvider
-- [ ] 支援中英夾雜（Code-switching）
-- [ ] 開發動態降級機制
-
-### Enterprise 安全治理
-- [ ] 音訊是否離開本機（答：逐字稿送 Claude，音訊不送）
-- [ ] 資料保留策略 + 刪除機制
+### v5.x — Enterprise
 - [ ] 支援私有模型部署（BYOM via GenerativeResponseProvider）
-- [ ] Multi-tenant / SSO / Policy controls
-- [ ] 稽核紀錄（Audit trail）
-
-### CRM 預載整合
-- [ ] 會前自動載入客戶歷史痛點
-- [ ] 行事曆 API 整合
-- [ ] Salesforce / HubSpot connector
+- [ ] Azure OpenAI Private Endpoint 支援
+- [ ] 端到端加密 / 閱後即焚
+- [ ] 多租戶 / SSO / Policy
+- [ ] 審計紀錄
+- [ ] 資料保留政策 + 刪除機制
 
 ---
 
-## 技術債與知道的問題
+## 技術債
 
-### 架構債
-- [ ] NotebookLM Puppeteer bridge 極脆弱，依賴 DOM selector
-- [ ] 第三方頁面任何變動都會導致 bridge 崩潰
-- [ ] 應盡速移轉至 Vector DB（Pinecone / Qdrant）
-
-### Swift Concurrency Warnings
-- [ ] 11 個黃色 warnings（Sendable / actor isolation）
-- [ ] 大多是 Apple SDK 適配問題，非自己的 code
-- [ ] Swift 6 準備期可逐步清理
-
-### 測試體系
-- [ ] Tests/ 目錄有 4 個測試檔，但需在 Xcode 建立 Test target 才能執行
-- [ ] 缺少 integration test（完整管線端到端）
-- [ ] 缺少 prompt regression test
-- [ ] 缺少 UI snapshot test
+- [ ] `MeetingSessionStore.swift` 尚未完全整合到 Coordinator（模型存在，部分整合）
+- [ ] Tests 目錄未加入 Xcode Test target（檔案存在但無法在 Xcode 跑）
+- [ ] Bridge 安全加固未完成（CORS + token + log redact）
+- [ ] Notion 關鍵字展開用靜態表，應改為 Claude 動態展開
+- [ ] `UsageExample.swift` 過大（~800 行），應拆分為多個 View 檔案
 
 ---
 
-## 專業評分追蹤
+## 評分追蹤（基於外部 Review）
 
-| 維度 | v4.2 初 | v4.3 現在 | 目標 |
-|------|:------:|:--------:|:----:|
-| 產品概念 | 9/10 | 9/10 | 9+ |
-| 架構方向 | 8/10 | 8.5/10 | 9 |
-| Demo 展示力 | 9/10 | 9/10 | 9.5 |
-| 工程完整度 | 6/10 | **8/10** | 8.5 |
-| 可維護性 | 5/10 | **8/10** | 8.5 |
-| 生產可用性 | 4.5/10 | **6.5/10** | 7.5 |
-| 企業落地潛力 | 7.5/10 | 8/10 | 8.5 |
-| 安全治理 | 3/10 | **6/10** | 7 |
-
----
-
-## 檔案統計
-
-| 類別 | 數量 |
-|------|------|
-| Swift 原始碼 | 14 個 |
-| 測試檔案 | 4 個 |
-| Node.js Bridge | 5 個 |
-| Xcode Project | 1 個 |
-| 總計 | 24+ 個 |
+| 維度 | 初始評分 | v4.2 後 | v4.3 後 | 目標 |
+|------|:-------:|:------:|:------:|:----:|
+| 產品概念 | 9/10 | 9/10 | 9/10 | 9/10 |
+| 架構方向 | 8/10 | 8.5/10 | 9/10 | 9/10 |
+| Demo 展示力 | 9/10 | 9/10 | **9.5/10** | 10/10 |
+| 工程完整度 | 6/10 | 7/10 | **8/10** | 9/10 |
+| 可維護性 | 5/10 | 7/10 | **8/10** | 9/10 |
+| 生產可用性 | 4.5/10 | 5/10 | **7/10** | 8/10 |
+| 企業落地潛力 | 7.5/10 | 7.5/10 | **8/10** | 9/10 |
+| 安全治理 | 3/10 | 4.5/10 | **6/10** | 8/10 |

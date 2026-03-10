@@ -18,30 +18,31 @@ MeetingCopilot 是一款 macOS 原生 AI 會議助手，透過即時擷取線上
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  MeetingAICoordinator + SwiftData Persistence        │
-│  @Observable @MainActor — UI 狀態代理                │
-│                                                         │
-│  ┌─────────────────────┐  ┌───────────────────────┐  │
-│  │ TranscriptPipeline  │  │ ResponseOrchestrator    │  │
-│  │ ★ 雙串流 (v4.3)    │  │                         │  │
-│  │                     │  │ • 三層管線路由          │  │
-│  │ SystemAudio → remote│→→│ • 背景策略分析          │  │
-│  │ Microphone  → local │  │ • 卡片生成              │  │
-│  └─────────────────────┘  └───────────────────────┘  │
-│                                                         │
-│  ┌─────────────────────┐  ┌───────────────────────┐  │
-│  │ TalkingPointsTracker│  │ MeetingSessionStore     │  │
-│  │ • MUST/SHOULD/NICE  │  │ (SwiftData)             │  │
-│  │ • 僅追蹤 .local    │  │ • MeetingSessionRecord  │  │
-│  └─────────────────────┘  │ • TranscriptRecord    │  │
-│                              │ • CardRecord           │  │
-│  ┌─────────────────────┐  └───────────────────────┘  │
-│  │ KeychainManager    │  ┌───────────────────────┐  │
-│  │ • Claude API Key  │  │ ProviderProtocols       │  │
-│  │ • NLM Notebook ID │  │ • KnowledgeRetrieval    │  │
-│  │ • Bridge Secret   │  │ • GenerativeResponse    │  │
-│  └─────────────────────┘  │ • TranscriptProvider   │  │
-│                              └───────────────────────┘  │
+│  MeetingAICoordinator + SwiftData Persistence           │
+│  @Observable @MainActor — UI 狀態代理                    │
+│                                                          │
+│  ┌─────────────────────┐  ┌───────────────────────────┐ │
+│  │ TranscriptPipeline  │  │ ResponseOrchestrator       │ │
+│  │ ★ 雙串流 (v4.3)     │  │                            │ │
+│  │                     │  │ • 三層管線路由             │ │
+│  │ SystemAudio → remote│→→│ • Notion RAG (優先)        │ │
+│  │ Microphone  → local │  │ • NotebookLM (fallback)    │ │
+│  └─────────────────────┘  │ • Claude Streaming         │ │
+│                           └───────────────────────────┘ │
+│                                                          │
+│  ┌─────────────────────┐  ┌───────────────────────────┐ │
+│  │ TalkingPointsTracker│  │ MeetingPrepView            │ │
+│  │ • MUST/SHOULD/NICE  │  │ • 會前資料輸入 UI          │ │
+│  │ • 僅追蹤 .local     │  │ • TXT 儲存/讀取           │ │
+│  └─────────────────────┘  │ • 語言選擇                 │ │
+│                           └───────────────────────────┘ │
+│                                                          │
+│  ┌─────────────────────┐  ┌───────────────────────────┐ │
+│  │ KeychainManager     │  │ NotionRetrievalService     │ │
+│  │ • Claude API Key    │  │ • Notion REST API          │ │
+│  │ • Notion API Key    │  │ • 多關鍵字展開搜尋         │ │
+│  │ • NLM Notebook ID   │  │ • 取代 NotebookLM Bridge   │ │
+│  └─────────────────────┘  └───────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -62,19 +63,43 @@ MicrophoneEngine (AVAudioEngine) → 「我的聲音」 → .local
 
 ```
 問題偵測(.remote) → ① 本地 Q&A (< 200ms) → 🔵 命中即返回
-                    → ② NotebookLM RAG (1-3s) → 找到相關段落
-                    → ③ Claude + context (2-4s) → 🟣 有文件佐證的 AI 回答
+                   → ② Notion RAG (1-2s)  → 搜尋 Notion 文件段落
+                   →    NotebookLM (fallback) → Bridge 備用
+                   → ③ Claude + context (2-4s) → 🟣 有文件佐證的 AI 回答
 背景: 每 3 分鐘 → 🟠 策略分析（含 TP 狀態）
 持續: TP 追蹤(.local) → ⚠️ MUST 未講提醒
+```
+
+## 使用流程
+
+```
+App 開啟 → API Key 設定（首次）
+    ↓
+會前準備 UI
+    ├── 輸入會議目標、參與者、Q&A、Talking Points
+    ├── 選擇語音辨識語言（zh-TW / en-US / en-GB / zh-CN / ja-JP）
+    ├── [儲存] 為 TXT 檔案（下次可讀取重用）
+    ├── [讀取] 從 TXT 載入
+    └── [開始會議]
+    ↓
+會議進行中
+    ├── 即時逐字稿（[對方] / [我方] 雙串流）
+    ├── AI 提詞卡片（🔵本地匹配 / 🟣Claude / 🟠策略）
+    ├── TP 追蹤（MUST/SHOULD/NICE 完成度）
+    └── 手動提問（Ask AI anything...）
+    ↓
+會議結束
+    ├── 會後摘要（TP 完成率、MUST 完成率、AI 卡片數）
+    └── [儲存逐字稿 + AI 卡片] 為 TXT 檔案
 ```
 
 ## 安全設計
 
 | 層面 | 措施 |
 |------|------|
-| **API Key** | macOS Keychain 安全儲存，首次啟動設定流程 |
-| **Bridge 認證** | x-bridge-secret header（shared secret） |
-| **CORS** | 僅允許 localhost / 127.0.0.1 |
+| **API Key** | macOS Keychain 安全儲存（Claude + Notion） |
+| **Notion** | 官方 REST API，Bearer token 認證 |
+| **Bridge** | x-bridge-secret header（shared secret）, CORS localhost |
 | **Log 脫敏** | 問題內容僅留前 20 字 |
 | **資料持久化** | SwiftData 本地存儲（不上雲） |
 
@@ -83,30 +108,41 @@ MicrophoneEngine (AVAudioEngine) → 「我的聲音」 → .local
 ```
 MeetingCoPilotAIApp1/
 │
-├── MeetingCopilot.xcodeproj/        # Xcode 專案（v4.3.0 build 4）
-├── MeetingCopilot/                  # App 入口
-│   ├── MeetingCopilotApp.swift       # @main + API Key 設定 UI
+├── MeetingCopilot.xcodeproj/           # Xcode 專案（v4.3.0 build 6）
+├── MeetingCopilot/                     # App 入口
+│   ├── MeetingCopilotApp.swift          # @main + API Key 設定 UI (Claude + Notion)
 │   ├── Info.plist / .entitlements
 │   └── Assets.xcassets/
 │
-├── Sources/ (14 個 Swift 檔案)
-│   ├── 音訊層：AudioCaptureEngine / SystemAudio / Microphone
-│   ├── AI 服務：KeywordMatcher+Claude / NotebookLM / TPTracker
-│   ├── 架構層：ProviderProtocols / TranscriptPipeline(雙串流) / ResponseOrchestrator / Coordinator
-│   └── 基礎設施：KeychainManager / MeetingSessionStore(SwiftData) / DemoDataProvider / UsageExample
+├── Sources/ (16 個 Swift 檔案)
+│   │
+│   │  ── 音訊層 ──
+│   ├── AudioCaptureEngine.swift         # Protocol + 共用型別
+│   ├── SystemAudioCaptureEngine.swift   # 主引擎（ScreenCaptureKit）→ remote
+│   ├── MicrophoneCaptureEngine.swift    # 降級引擎（Microphone）→ local
+│   │
+│   │  ── AI 服務層 ──
+│   ├── KeywordMatcherAndClaude.swift    # 第一層 Q&A 匹配 + Claude API
+│   ├── NotionRetrievalService.swift     # ★ 第二層 Notion RAG（取代 NotebookLM）
+│   ├── NotebookLMService.swift          # 第二層 NotebookLM（備用）
+│   ├── TalkingPointsTracker.swift       # TP 追蹤（MUST/SHOULD/NICE）
+│   │
+│   │  ── 架構層 ──
+│   ├── ProviderProtocols.swift          # 3 個抽象介面
+│   ├── TranscriptPipeline.swift         # ★ 雙串流管線（v4.3）
+│   ├── ResponseOrchestrator.swift       # Notion 優先 → NLM fallback → Claude
+│   ├── MeetingAICoordinator.swift       # 瘦身版 Coordinator + SwiftData
+│   │
+│   │  ── 基礎設施 ──
+│   ├── KeychainManager.swift            # Keychain（Claude + Notion + NLM）
+│   ├── MeetingSessionStore.swift        # SwiftData persistence
+│   ├── MeetingPrepView.swift            # ★ 會前準備 UI + TXT 儲存/讀取 + 語言選擇
+│   ├── DemoDataProvider.swift           # Demo 資料
+│   └── UsageExample.swift               # 主畫面 + 會後儲存逐字稿
 │
 ├── Tests/ (4 個測試)
-│   ├── KeywordMatcherTests.swift
-│   ├── QuestionDetectorTests.swift
-│   ├── TalkingPointsTrackerTests.swift
-│   └── ResponseOrchestratorTests.swift
-│
-├── bridge/                          # NotebookLM Bridge (v1.1 🔒)
-│   ├── bridge-server.js              # CORS + auth + redact
-│   ├── test-bridge.js / package.json
-│   └── .env.example
-│
-├── TODO.md                          # 開發待辦與演進路線圖
+├── bridge/                             # NotebookLM Bridge（備用方案）
+├── TODO.md                             # 開發待辦與演進路線圖
 ├── .gitignore
 └── README.md
 ```
@@ -118,15 +154,23 @@ MeetingCoPilotAIApp1/
 git clone https://github.com/chchlin1018/MeetingCoPilotAIApp1.git
 open MeetingCoPilotAIApp1/MeetingCopilot.xcodeproj
 
-# 2. 首次啟動設定 API Key（Keychain 安全儲存）
-# App 會自動彈出設定視窗，或 ⌘, 開啟
+# 2. Xcode Signing: 選擇你的 Development Team
 
-# 3. 啟動 Bridge（可選）
-cd bridge && npm install && npm run dev
-# 複製啟動時顯示的 Bridge Secret 到 App 設定
+# 3. ⌘+R Build & Run
+# 首次啟動會彈出 API Key 設定：
+#   - Claude API Key（必填）: sk-ant-api03-...
+#   - Notion API Key（建議）: ntn_...
+#   - NotebookLM（選填，備用方案）
 
-# 4. Xcode ⌘+R build & run
+# 4. 會前準備 → 輸入資料或載入 TXT → 開始會議
 ```
+
+### Notion API Key 取得方式
+
+1. 開啟 https://www.notion.so/profile/integrations
+2. 點 **New integration** → 名稱填 `MeetingCopilot`
+3. 複製 API Key（`ntn_...`）
+4. 在 Notion 中對要搜尋的 page 點「⋯」→「Connections」→ 加入 `MeetingCopilot`
 
 ## 版本演進
 
@@ -135,8 +179,8 @@ cd bridge && npm install && npm run dev
 | v4.0 | 雙引擎即時管線 | ✅ |
 | v4.1 | 三層管線 + TP 追蹤 + NotebookLM Bridge | ✅ |
 | v4.2 | 工程化重構（Coordinator -57% + Keychain + Provider Protocol） | ✅ |
-| **v4.3** | **雙串流說話者分離 + SwiftData + Bridge 安全** | **✅ 目前** |
-| v4.4 | Evidence-based Card + Bridge Optional + 雙串流 UI | 🔜 |
+| **v4.3** | **雙串流 + 會前準備 UI + Notion RAG + 語言選擇 + 會後儲存** | **✅ 目前** |
+| v4.4 | Evidence-based Card + 雙串流 UI 分色 + Telemetry | 🔜 |
 | v5.0 | Speaker Diarization + WhisperKit + Enterprise | 🔮 |
 
 詳細開發待辦請參考 [TODO.md](TODO.md)
@@ -149,10 +193,12 @@ cd bridge && npm install && npm run dev
 | 語言 | Swift 5.0, Strict Concurrency |
 | UI | SwiftUI + @Observable |
 | 持久化 | SwiftData |
-| 安全 | macOS Keychain + Bridge Auth |
+| RAG | Notion API（主要）+ NotebookLM Bridge（備用）|
+| 安全 | macOS Keychain |
+| 語音辨識 | Apple Speech（zh-TW / en-US / en-GB / zh-CN / ja-JP）|
 | Bundle ID | com.macrovision.MeetingCopilot |
-| 版本 | 4.3.0 (build 4) |
-| Swift 檔案 | 14 個 + 4 測試 |
+| 版本 | 4.3.0 (build 6) |
+| Swift 檔案 | 16 個 + 4 測試 |
 | 架構 | Actor-based, Dual-stream, Event-driven |
 
 ## 授權
