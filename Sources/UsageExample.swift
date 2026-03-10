@@ -1,22 +1,24 @@
 // UsageExample.swift
 // MeetingCopilot v4.3 — SwiftUI Main View
-// Updated: System Monitor (CPU/Memory/Network) in stats panel
+// Updated: Enhanced post-meeting report with AI summary + Action Items + Notion export
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Main View
 
 struct MeetingTeleprompterView: View {
 
     @State private var coordinator: MeetingAICoordinator
-    @State private var systemMonitor = SystemMonitor()    // ★ 系統監控
+    @State private var systemMonitor = SystemMonitor()
     @State private var isSessionActive = false
     @State private var showPrepView = true
     @State private var manualQuestion = ""
     @State private var meetingTitle = "Meeting"
     @State private var activeSpeechLanguage = "zh-TW"
 
+    // ★ 會後報告
     @State private var showPostMeetingSave = false
     @State private var savedTranscript = ""
     @State private var savedCards: [AICard] = []
@@ -24,6 +26,18 @@ struct MeetingTeleprompterView: View {
     @State private var savedTPStats = TPStats(total: 0, completed: 0, mustTotal: 0, mustCompleted: 0, shouldTotal: 0, shouldCompleted: 0)
     @State private var savedTalkingPoints: [TalkingPoint] = []
     @State private var meetingStartTime: Date?
+    @State private var reportFormat: ReportFormat = .markdown
+    @State private var aiSummary: [String] = []
+    @State private var actionItems: [ActionItem] = []
+    @State private var isGeneratingSummary = false
+    @State private var notionExportStatus: String = ""
+
+    enum ReportFormat: String, CaseIterable {
+        case markdown = "Markdown"
+        case txt = "TXT"
+    }
+
+    private let reportService = PostMeetingReportService()
 
     init() {
         let apiKey = KeychainManager.claudeAPIKey ?? "NOT_CONFIGURED"
@@ -63,13 +77,13 @@ struct MeetingTeleprompterView: View {
 
             if showPostMeetingSave {
                 Color.black.opacity(0.7).ignoresSafeArea()
-                postMeetingSaveView
-                    .frame(width: 480, height: 300)
+                postMeetingReportView
+                    .frame(width: 600, height: 580)
                     .background(.ultraThinMaterial)
                     .cornerRadius(16).shadow(radius: 20)
             }
         }
-        .onAppear { systemMonitor.start() }             // ★ App 啟動即開始監控
+        .onAppear { systemMonitor.start() }
         .onDisappear { systemMonitor.stop() }
     }
 
@@ -99,128 +113,251 @@ struct MeetingTeleprompterView: View {
         savedStats = coordinator.stats
         isSessionActive = false
         showPostMeetingSave = true
+
+        // ★ 自動開始產生 AI 摘要 + 擷取 Action Items
+        isGeneratingSummary = true
+        async let summaryTask = reportService.generateSummary(
+            transcript: savedTranscript, title: meetingTitle, tpStats: savedTPStats)
+        async let actionTask = reportService.extractActionItems(from: savedTranscript)
+        aiSummary = await summaryTask
+        actionItems = await actionTask
+        isGeneratingSummary = false
     }
 
-    // MARK: 會後儲存 UI
+    // MARK: ★ 會後報告 UI（強化版）
 
-    private var postMeetingSaveView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 40)).foregroundColor(.green)
-            Text("會議結束").font(.system(size: 18, weight: .bold)).foregroundColor(.white)
-            Text(savedStats.summary)
-                .font(.system(size: 12, design: .monospaced)).foregroundColor(.gray)
-            HStack(spacing: 16) {
-                VStack {
-                    Text("TP 完成").font(.system(size: 10)).foregroundColor(.gray)
-                    Text("\(savedTPStats.completed)/\(savedTPStats.total)")
-                        .font(.system(size: 18, weight: .bold, design: .monospaced))
-                        .foregroundColor(savedTPStats.mustCompletionRate >= 1.0 ? .green : .yellow)
-                }
-                VStack {
-                    Text("MUST").font(.system(size: 10)).foregroundColor(.gray)
-                    Text("\(savedTPStats.mustCompleted)/\(savedTPStats.mustTotal)")
-                        .font(.system(size: 18, weight: .bold, design: .monospaced))
-                        .foregroundColor(savedTPStats.mustCompletionRate >= 1.0 ? .green : .red)
-                }
-                VStack {
-                    Text("AI 卡片").font(.system(size: 10)).foregroundColor(.gray)
-                    Text("\(savedCards.count)")
-                        .font(.system(size: 18, weight: .bold, design: .monospaced))
-                        .foregroundColor(.purple)
-                }
+    private var postMeetingReportView: some View {
+        VStack(spacing: 0) {
+            // 標題列
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 24)).foregroundColor(.green)
+                Text("會議結束").font(.system(size: 16, weight: .bold)).foregroundColor(.white)
+                Spacer()
+                Text(savedStats.summary)
+                    .font(.system(size: 10, design: .monospaced)).foregroundColor(.gray)
             }
-            HStack(spacing: 12) {
-                Button("跳過") { showPostMeetingSave = false }
-                .buttonStyle(.plain).font(.system(size: 13)).foregroundColor(.gray)
-                .padding(.horizontal, 20).padding(.vertical, 8)
-                .background(Color.gray.opacity(0.2)).cornerRadius(8)
-                Button(action: saveTranscriptToFile) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.arrow.down")
-                        Text("儲存逐字稿 + AI 卡片")
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .background(Color(hex: "111118"))
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // TP 摘要
+                    HStack(spacing: 16) {
+                        reportMetric("TP 完成", "\(savedTPStats.completed)/\(savedTPStats.total)",
+                                     savedTPStats.mustCompletionRate >= 1.0 ? .green : .yellow)
+                        reportMetric("MUST", "\(savedTPStats.mustCompleted)/\(savedTPStats.mustTotal)",
+                                     savedTPStats.mustCompletionRate >= 1.0 ? .green : .red)
+                        reportMetric("AI 卡片", "\(savedCards.count)", .purple)
+                        reportMetric("成本", "$\(String(format: "%.2f", savedStats.estimatedClaudeCost))", .orange)
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.horizontal, 20).padding(.vertical, 8)
-                    .background(Color.green.opacity(0.8)).cornerRadius(8)
-                }.buttonStyle(.plain)
-            }
-        }.padding(24)
-    }
+                    .frame(maxWidth: .infinity)
 
-    private func saveTranscriptToFile() {
-        let content = buildTranscriptTXT()
-        let panel = NSSavePanel()
-        panel.title = "儲存會議記錄"
-        let dateStr = formatDate(meetingStartTime ?? Date())
-        let safeName = meetingTitle.replacingOccurrences(of: " ", with: "-")
-        panel.nameFieldStringValue = "\(dateStr)_\(safeName)_transcript.txt"
-        panel.allowedContentTypes = [.plainText]
-        panel.canCreateDirectories = true
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
-                showPostMeetingSave = false
-            } catch { print("❌ 儲存失敗: \(error)") }
-        }
-    }
+                    Divider().background(Color.gray.opacity(0.3))
 
-    private func buildTranscriptTXT() -> String {
-        var lines: [String] = []
-        let startStr = meetingStartTime.map { formatDateTime($0) } ?? "N/A"
-        let endStr = formatDateTime(Date())
-        lines.append("════════════════════════════════════════════════════")
-        lines.append("  MeetingCopilot 會議記錄")
-        lines.append("════════════════════════════════════════════════════")
-        lines.append("")
-        lines.append("會議名稱: \(meetingTitle)")
-        lines.append("開始時間: \(startStr)")
-        lines.append("結束時間: \(endStr)")
-        if let d = savedStats.sessionDuration { lines.append("會議時長: \(Int(d / 60)) 分鐘") }
-        lines.append("語音辨識: \(activeSpeechLanguage)")
-        lines.append("")
-        lines.append("── 統計 ──────────────────────────────────────────")
-        lines.append("本地匹配: \(savedStats.localMatches)")
-        lines.append("NLM 查詢: \(savedStats.notebookLMQueries)")
-        lines.append("Claude 查詢: \(savedStats.claudeQueries)")
-        lines.append("策略分析: \(savedStats.strategyAnalyses)")
-        lines.append("平均延遲: \(String(format: "%.0f", savedStats.averageClaudeLatencyMs))ms")
-        lines.append("AI 成本: $\(String(format: "%.2f", savedStats.estimatedClaudeCost))")
-        lines.append("")
-        lines.append("── Talking Points (\(savedTPStats.completed)/\(savedTPStats.total)) ──")
-        for tp in savedTalkingPoints {
-            let icon: String
-            switch tp.status {
-            case .completed: icon = "✅"; case .skipped: icon = "⏭️"
-            case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
-            }
-            lines.append("  \(icon) [\(tp.priority.rawValue)] \(tp.content)")
-            if let speech = tp.detectedSpeech { lines.append("     偵測: \(speech)") }
-        }
-        lines.append("")
-        lines.append("── 逐字稿 ────────────────────────────────────────")
-        lines.append(savedTranscript.isEmpty ? "（無逐字稿）" : savedTranscript)
-        lines.append("")
-        if !savedCards.isEmpty {
-            lines.append("── AI 卡片 (\(savedCards.count) 張) ───────────────────────")
-            for (i, card) in savedCards.enumerated() {
-                let e: String
-                switch card.type {
-                case .qaMatch: e = "🔵"; case .aiGenerated: e = "🟣"
-                case .strategy: e = "🟠"; case .warning: e = "⚠️"
+                    // ★ AI 摘要
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "brain.head.profile").foregroundColor(.purple).font(.system(size: 12))
+                            Text("AI 會議摘要").font(.system(size: 12, weight: .bold)).foregroundColor(.white)
+                            Spacer()
+                            if isGeneratingSummary {
+                                ProgressView().scaleEffect(0.6)
+                                Text("Claude 生成中...").font(.system(size: 10)).foregroundColor(.purple)
+                            }
+                        }
+                        if aiSummary.isEmpty && !isGeneratingSummary {
+                            Text("（無摘要）").font(.system(size: 11)).foregroundColor(.gray.opacity(0.4))
+                        }
+                        ForEach(Array(aiSummary.enumerated()), id: \.offset) { i, point in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("\(i + 1).").font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.purple.opacity(0.7))
+                                Text(point).font(.system(size: 12)).foregroundColor(.white.opacity(0.9))
+                            }
+                        }
+                    }
+
+                    Divider().background(Color.gray.opacity(0.3))
+
+                    // ★ Action Items
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "checklist").foregroundColor(.green).font(.system(size: 12))
+                            Text("Action Items").font(.system(size: 12, weight: .bold)).foregroundColor(.white)
+                            Spacer()
+                            Text("\(actionItems.count) 項").font(.system(size: 10, design: .monospaced)).foregroundColor(.gray)
+                        }
+                        if actionItems.isEmpty && !isGeneratingSummary {
+                            Text("（未偵測到行動項目）").font(.system(size: 11)).foregroundColor(.gray.opacity(0.4))
+                        }
+                        ForEach(actionItems) { item in
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "square").font(.system(size: 10)).foregroundColor(.green.opacity(0.5))
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.content).font(.system(size: 11)).foregroundColor(.white.opacity(0.85))
+                                        .lineLimit(2)
+                                    HStack(spacing: 8) {
+                                        if let owner = item.owner {
+                                            Text(owner).font(.system(size: 9, design: .monospaced))
+                                                .foregroundColor(.cyan.opacity(0.7))
+                                        }
+                                        if let deadline = item.deadline {
+                                            Text(deadline).font(.system(size: 9, design: .monospaced))
+                                                .foregroundColor(.orange.opacity(0.7))
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
                 }
-                lines.append("")
-                lines.append("\(e) #\(i + 1) \(card.title)")
-                lines.append("   \(String(format: "%.0f", card.latencyMs))ms | \(String(format: "%.0f", card.confidence * 100))%")
-                lines.append("   \(card.content)")
+                .padding(20)
+            }
+
+            Divider().background(Color.gray.opacity(0.3))
+
+            // 底部按鈕列
+            HStack(spacing: 10) {
+                // 格式選擇
+                Picker("", selection: $reportFormat) {
+                    ForEach(ReportFormat.allCases, id: \.self) { f in
+                        Text(f.rawValue).tag(f)
+                    }
+                }
+                .pickerStyle(.segmented).frame(width: 160)
+
+                Spacer()
+
+                if !notionExportStatus.isEmpty {
+                    Text(notionExportStatus).font(.system(size: 10))
+                        .foregroundColor(notionExportStatus.contains("✅") ? .green : .orange)
+                }
+
+                Button("跳過") { showPostMeetingSave = false; resetReportState() }
+                .buttonStyle(.plain).font(.system(size: 12)).foregroundColor(.gray)
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(Color.gray.opacity(0.2)).cornerRadius(6)
+
+                // Notion 匯出
+                if KeychainManager.hasNotionAPIKey {
+                    Button(action: { Task { await exportToNotion() } }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.and.arrow.up")
+                            Text("Notion")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 14).padding(.vertical, 6)
+                        .background(Color.teal.opacity(0.8)).cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isGeneratingSummary)
+                }
+
+                // 儲存檔案
+                Button(action: saveReport) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.down")
+                        Text("儲存 \(reportFormat.rawValue)")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Color.green.opacity(0.8)).cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                .disabled(isGeneratingSummary)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 10)
+            .background(Color(hex: "111118"))
+        }
+    }
+
+    private func reportMetric(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(label).font(.system(size: 9)).foregroundColor(.gray)
+            Text(value).font(.system(size: 16, weight: .bold, design: .monospaced)).foregroundColor(color)
+        }
+    }
+
+    // MARK: 報告資料組裝
+
+    private func buildReport() -> MeetingReport {
+        let duration: String
+        if let d = savedStats.sessionDuration {
+            duration = "\(Int(d / 60)) 分鐘"
+        } else { duration = "N/A" }
+
+        return MeetingReport(
+            title: meetingTitle,
+            startTime: meetingStartTime,
+            endTime: Date(),
+            duration: duration,
+            language: activeSpeechLanguage,
+            summary: aiSummary,
+            actionItems: actionItems,
+            transcript: savedTranscript,
+            talkingPoints: savedTalkingPoints,
+            tpStats: savedTPStats,
+            cards: savedCards,
+            stats: savedStats
+        )
+    }
+
+    // MARK: 儲存報告
+
+    private func saveReport() {
+        let report = buildReport()
+        Task {
+            let content: String
+            let ext: String
+            let contentType: UTType
+            switch reportFormat {
+            case .markdown:
+                content = await reportService.buildMarkdown(report: report)
+                ext = "md"
+                contentType = UTType(filenameExtension: "md") ?? .plainText
+            case .txt:
+                content = await reportService.buildTXT(report: report)
+                ext = "txt"
+                contentType = .plainText
+            }
+
+            let panel = NSSavePanel()
+            panel.title = "儲存會議報告"
+            let dateStr = formatDate(meetingStartTime ?? Date())
+            let safeName = meetingTitle.replacingOccurrences(of: " ", with: "-")
+            panel.nameFieldStringValue = "\(dateStr)_\(safeName).\(ext)"
+            panel.allowedContentTypes = [contentType]
+            panel.canCreateDirectories = true
+
+            if panel.runModal() == .OK, let url = panel.url {
+                do {
+                    try content.write(to: url, atomically: true, encoding: .utf8)
+                    showPostMeetingSave = false
+                    resetReportState()
+                } catch { print("❌ 儲存失敗: \(error)") }
             }
         }
-        lines.append("")
-        lines.append("════════════════════════════════════════════════════")
-        lines.append("  Generated by MeetingCopilot v4.3")
-        lines.append("  © MacroVision Systems")
-        lines.append("════════════════════════════════════════════════════")
-        return lines.joined(separator: "\n")
+    }
+
+    // MARK: Notion 匯出
+
+    private func exportToNotion() async {
+        notionExportStatus = "匯出中..."
+        let report = buildReport()
+        let result = await reportService.exportToNotion(report: report)
+        if result.success, let url = result.url {
+            notionExportStatus = "✅ 已匯出"
+            // 延遲清除狀態
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { notionExportStatus = "" }
+        } else {
+            notionExportStatus = "⚠️ 需要設定 Notion parent page"
+        }
+    }
+
+    private func resetReportState() {
+        aiSummary = []; actionItems = []; notionExportStatus = ""
     }
 
     private func formatDate(_ date: Date) -> String {
@@ -435,7 +572,7 @@ struct MeetingTeleprompterView: View {
                 Divider().background(Color.gray.opacity(0.3))
                 statsPanel
                 Divider().background(Color.gray.opacity(0.3))
-                systemHealthPanel                         // ★ 新增
+                systemHealthPanel
             }.padding(12)
         }
         .background(Color(hex: "0D0D14"))
@@ -514,15 +651,10 @@ struct MeetingTeleprompterView: View {
         }
     }
 
-    // MARK: ★ System Health Panel
-
     private var systemHealthPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("SYSTEM HEALTH").font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
-
             let s = systemMonitor.snapshot
-
-            // CPU
             HStack {
                 Image(systemName: "cpu").font(.system(size: 10)).foregroundColor(.gray)
                 Text("CPU").font(.system(size: 11)).foregroundColor(.gray)
@@ -531,11 +663,7 @@ struct MeetingTeleprompterView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(cpuColor(s.cpuPercent))
             }
-            ProgressView(value: s.cpuUsage)
-                .tint(cpuColor(s.cpuPercent))
-                .scaleEffect(x: 1, y: 0.5)
-
-            // Memory
+            ProgressView(value: s.cpuUsage).tint(cpuColor(s.cpuPercent)).scaleEffect(x: 1, y: 0.5)
             HStack {
                 Image(systemName: "memorychip").font(.system(size: 10)).foregroundColor(.gray)
                 Text("Memory").font(.system(size: 11)).foregroundColor(.gray)
@@ -545,83 +673,31 @@ struct MeetingTeleprompterView: View {
                     .foregroundColor(memoryColor(s.memoryPressure))
             }
             ProgressView(value: Double(s.memoryUsedPercent) / 100.0)
-                .tint(memoryColor(s.memoryPressure))
-                .scaleEffect(x: 1, y: 0.5)
+                .tint(memoryColor(s.memoryPressure)).scaleEffect(x: 1, y: 0.5)
             HStack {
-                Text(s.memoryPressure.rawValue)
-                    .font(.system(size: 9, design: .monospaced))
+                Text(s.memoryPressure.rawValue).font(.system(size: 9, design: .monospaced))
                     .foregroundColor(memoryColor(s.memoryPressure))
                 Spacer()
-                Text("可用 \(s.memoryAvailableMB) MB")
-                    .font(.system(size: 9, design: .monospaced))
+                Text("可用 \(s.memoryAvailableMB) MB").font(.system(size: 9, design: .monospaced))
                     .foregroundColor(.gray.opacity(0.5))
             }
-
-            // Network
             HStack {
                 Image(systemName: "wifi").font(.system(size: 10)).foregroundColor(.gray)
                 Text("Network").font(.system(size: 11)).foregroundColor(.gray)
                 Spacer()
-                HStack(spacing: 4) {
-                    networkIcon(s.networkQuality)
-                    Text(s.networkQuality.rawValue)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(networkColor(s.networkQuality))
-                }
-            }
-            if s.networkLatencyMs > 0 {
-                HStack {
-                    Text("API Latency")
-                        .font(.system(size: 9)).foregroundColor(.gray.opacity(0.5))
-                    Spacer()
-                    Text("\(String(format: "%.0f", s.networkLatencyMs))ms")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(networkColor(s.networkQuality))
-                }
+                Text(s.networkQuality.rawValue)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(networkColor(s.networkQuality))
             }
         }
     }
 
-    // MARK: System Health Helpers
-
-    private func cpuColor(_ percent: Int) -> Color {
-        if percent > 80 { return .red }
-        if percent > 50 { return .yellow }
-        return .green
+    private func cpuColor(_ p: Int) -> Color { p > 80 ? .red : p > 50 ? .yellow : .green }
+    private func memoryColor(_ p: SystemSnapshot.MemoryPressure) -> Color {
+        switch p { case .critical: return .red; case .warning: return .yellow; case .normal: return .green }
     }
-
-    private func memoryColor(_ pressure: SystemSnapshot.MemoryPressure) -> Color {
-        switch pressure {
-        case .critical: return .red
-        case .warning: return .yellow
-        case .normal: return .green
-        }
-    }
-
-    private func networkColor(_ quality: SystemSnapshot.NetworkQuality) -> Color {
-        switch quality {
-        case .excellent: return .green
-        case .good: return .green.opacity(0.8)
-        case .fair: return .yellow
-        case .poor: return .red
-        case .unknown: return .gray
-        }
-    }
-
-    @ViewBuilder
-    private func networkIcon(_ quality: SystemSnapshot.NetworkQuality) -> some View {
-        switch quality {
-        case .excellent:
-            Image(systemName: "wifi").font(.system(size: 9)).foregroundColor(.green)
-        case .good:
-            Image(systemName: "wifi").font(.system(size: 9)).foregroundColor(.green.opacity(0.8))
-        case .fair:
-            Image(systemName: "wifi.exclamationmark").font(.system(size: 9)).foregroundColor(.yellow)
-        case .poor:
-            Image(systemName: "wifi.slash").font(.system(size: 9)).foregroundColor(.red)
-        case .unknown:
-            Image(systemName: "wifi.slash").font(.system(size: 9)).foregroundColor(.gray)
-        }
+    private func networkColor(_ q: SystemSnapshot.NetworkQuality) -> Color {
+        switch q { case .excellent, .good: return .green; case .fair: return .yellow; case .poor: return .red; case .unknown: return .gray }
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
@@ -631,8 +707,6 @@ struct MeetingTeleprompterView: View {
             Text(value).font(.system(size: 11, design: .monospaced)).foregroundColor(.white)
         }
     }
-
-    // MARK: Manual Query Bar
 
     private var manualQueryBar: some View {
         HStack(spacing: 8) {
