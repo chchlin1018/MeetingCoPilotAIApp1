@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.3 — SwiftUI Main View
-// Updated: Dual-stream colored transcript + TP detected speech
+// Updated: System Monitor (CPU/Memory/Network) in stats panel
 
 import SwiftUI
 import AppKit
@@ -10,6 +10,7 @@ import AppKit
 struct MeetingTeleprompterView: View {
 
     @State private var coordinator: MeetingAICoordinator
+    @State private var systemMonitor = SystemMonitor()    // ★ 系統監控
     @State private var isSessionActive = false
     @State private var showPrepView = true
     @State private var manualQuestion = ""
@@ -68,6 +69,8 @@ struct MeetingTeleprompterView: View {
                     .cornerRadius(16).shadow(radius: 20)
             }
         }
+        .onAppear { systemMonitor.start() }             // ★ App 啟動即開始監控
+        .onDisappear { systemMonitor.stop() }
     }
 
     private func loadPrepAndStart(_ result: MeetingPrepResult) async {
@@ -192,9 +195,7 @@ struct MeetingTeleprompterView: View {
             case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
             }
             lines.append("  \(icon) [\(tp.priority.rawValue)] \(tp.content)")
-            if let speech = tp.detectedSpeech {
-                lines.append("     偵測: \(speech)")
-            }
+            if let speech = tp.detectedSpeech { lines.append("     偵測: \(speech)") }
         }
         lines.append("")
         lines.append("── 逐字稿 ────────────────────────────────────────")
@@ -332,7 +333,7 @@ struct MeetingTeleprompterView: View {
         .background(color.opacity(0.1)).cornerRadius(4)
     }
 
-    // MARK: ★ Transcript Panel（分色顯示）
+    // MARK: Transcript Panel
 
     private var transcriptPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -349,7 +350,6 @@ struct MeetingTeleprompterView: View {
                 }
             }
             .padding(.horizontal, 12).padding(.top, 8)
-
             ScrollViewReader { proxy in
                 ScrollView {
                     if coordinator.transcriptEntries.isEmpty {
@@ -434,6 +434,8 @@ struct MeetingTeleprompterView: View {
                 goalsPanel
                 Divider().background(Color.gray.opacity(0.3))
                 statsPanel
+                Divider().background(Color.gray.opacity(0.3))
+                systemHealthPanel                         // ★ 新增
             }.padding(12)
         }
         .background(Color(hex: "0D0D14"))
@@ -512,6 +514,116 @@ struct MeetingTeleprompterView: View {
         }
     }
 
+    // MARK: ★ System Health Panel
+
+    private var systemHealthPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SYSTEM HEALTH").font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
+
+            let s = systemMonitor.snapshot
+
+            // CPU
+            HStack {
+                Image(systemName: "cpu").font(.system(size: 10)).foregroundColor(.gray)
+                Text("CPU").font(.system(size: 11)).foregroundColor(.gray)
+                Spacer()
+                Text("\(s.cpuPercent)%")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(cpuColor(s.cpuPercent))
+            }
+            ProgressView(value: s.cpuUsage)
+                .tint(cpuColor(s.cpuPercent))
+                .scaleEffect(x: 1, y: 0.5)
+
+            // Memory
+            HStack {
+                Image(systemName: "memorychip").font(.system(size: 10)).foregroundColor(.gray)
+                Text("Memory").font(.system(size: 11)).foregroundColor(.gray)
+                Spacer()
+                Text("\(s.memoryUsedMB)/\(s.memoryTotalMB) MB")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(memoryColor(s.memoryPressure))
+            }
+            ProgressView(value: Double(s.memoryUsedPercent) / 100.0)
+                .tint(memoryColor(s.memoryPressure))
+                .scaleEffect(x: 1, y: 0.5)
+            HStack {
+                Text(s.memoryPressure.rawValue)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(memoryColor(s.memoryPressure))
+                Spacer()
+                Text("可用 \(s.memoryAvailableMB) MB")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.gray.opacity(0.5))
+            }
+
+            // Network
+            HStack {
+                Image(systemName: "wifi").font(.system(size: 10)).foregroundColor(.gray)
+                Text("Network").font(.system(size: 11)).foregroundColor(.gray)
+                Spacer()
+                HStack(spacing: 4) {
+                    networkIcon(s.networkQuality)
+                    Text(s.networkQuality.rawValue)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(networkColor(s.networkQuality))
+                }
+            }
+            if s.networkLatencyMs > 0 {
+                HStack {
+                    Text("API Latency")
+                        .font(.system(size: 9)).foregroundColor(.gray.opacity(0.5))
+                    Spacer()
+                    Text("\(String(format: "%.0f", s.networkLatencyMs))ms")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(networkColor(s.networkQuality))
+                }
+            }
+        }
+    }
+
+    // MARK: System Health Helpers
+
+    private func cpuColor(_ percent: Int) -> Color {
+        if percent > 80 { return .red }
+        if percent > 50 { return .yellow }
+        return .green
+    }
+
+    private func memoryColor(_ pressure: SystemSnapshot.MemoryPressure) -> Color {
+        switch pressure {
+        case .critical: return .red
+        case .warning: return .yellow
+        case .normal: return .green
+        }
+    }
+
+    private func networkColor(_ quality: SystemSnapshot.NetworkQuality) -> Color {
+        switch quality {
+        case .excellent: return .green
+        case .good: return .green.opacity(0.8)
+        case .fair: return .yellow
+        case .poor: return .red
+        case .unknown: return .gray
+        }
+    }
+
+    @ViewBuilder
+    private func networkIcon(_ quality: SystemSnapshot.NetworkQuality) -> some View {
+        switch quality {
+        case .excellent:
+            Image(systemName: "wifi").font(.system(size: 9)).foregroundColor(.green)
+        case .good:
+            Image(systemName: "wifi").font(.system(size: 9)).foregroundColor(.green.opacity(0.8))
+        case .fair:
+            Image(systemName: "wifi.exclamationmark").font(.system(size: 9)).foregroundColor(.yellow)
+        case .poor:
+            Image(systemName: "wifi.slash").font(.system(size: 9)).foregroundColor(.red)
+        case .unknown:
+            Image(systemName: "wifi.slash").font(.system(size: 9)).foregroundColor(.gray)
+        }
+    }
+
     private func statRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label).font(.system(size: 11)).foregroundColor(.gray)
@@ -541,47 +653,32 @@ struct MeetingTeleprompterView: View {
 }
 
 
-// MARK: - ★ Transcript Entry Row（分色）
+// MARK: - Transcript Entry Row
 
 struct TranscriptEntryRow: View {
     let entry: TranscriptEntry
     let isDualStream: Bool
-
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             if isDualStream {
-                // 說話者標籤
                 Text(entry.speakerLabel)
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(speakerColor.opacity(0.7))
-                    .frame(width: 24)
-                    .padding(.top, 2)
-
-                // 左邊色條
+                    .frame(width: 24).padding(.top, 2)
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(speakerColor.opacity(0.4))
-                    .frame(width: 2)
+                    .fill(speakerColor.opacity(0.4)).frame(width: 2)
             }
-
-            Text(entry.text)
-                .font(.system(size: 13))
-                .foregroundColor(textColor)
+            Text(entry.text).font(.system(size: 13)).foregroundColor(textColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
     }
-
-    private var speakerColor: Color {
-        entry.speaker == .remote ? .white : .cyan
-    }
-
-    private var textColor: Color {
-        entry.speaker == .remote ? .white.opacity(0.85) : .cyan.opacity(0.7)
-    }
+    private var speakerColor: Color { entry.speaker == .remote ? .white : .cyan }
+    private var textColor: Color { entry.speaker == .remote ? .white.opacity(0.85) : .cyan.opacity(0.7) }
 }
 
 
-// MARK: - ★ Talking Point Row（含偵測標示）
+// MARK: - Talking Point Row
 
 struct TalkingPointRow: View {
     let talkingPoint: TalkingPoint
@@ -615,8 +712,6 @@ struct TalkingPointRow: View {
                     }
                 }
             }
-
-            // ★ 偵測到我方已講標示
             if let speech = talkingPoint.detectedSpeech {
                 HStack(spacing: 4) {
                     if talkingPoint.status == .completed {
@@ -630,10 +725,8 @@ struct TalkingPointRow: View {
                         Text("偵測中")
                             .font(.system(size: 9, weight: .medium)).foregroundColor(.blue.opacity(0.6))
                     }
-                    Text(speech)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.5))
-                        .lineLimit(1)
+                    Text(speech).font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.gray.opacity(0.5)).lineLimit(1)
                 }
                 .padding(.leading, 24)
             }
