@@ -21,6 +21,7 @@
 		BB000000000000000000000C /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000000000000000000000F /* TranscriptPipeline.swift */; };
 		BB000000000000000000000D /* ResponseOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000010 /* ResponseOrchestrator.swift */; };
 		BB000000000000000000000E /* DemoDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000011 /* DemoDataProvider.swift */; };
+		BB000000000000000000000F /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000012 /* KeychainManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 		FF000000000000000000000F /* TranscriptPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPipeline.swift; sourceTree = "<group>"; };
 		FF0000000000000000000010 /* ResponseOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponseOrchestrator.swift; sourceTree = "<group>"; };
 		FF0000000000000000000011 /* DemoDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDataProvider.swift; sourceTree = "<group>"; };
+		FF0000000000000000000012 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -76,6 +78,7 @@
 				FF000000000000000000000F /* TranscriptPipeline.swift */,
 				FF0000000000000000000010 /* ResponseOrchestrator.swift */,
 				FF0000000000000000000007 /* MeetingAICoordinator.swift */,
+				FF0000000000000000000012 /* KeychainManager.swift */,
 				FF0000000000000000000011 /* DemoDataProvider.swift */,
 				FF0000000000000000000008 /* UsageExample.swift */,
 			);
@@ -182,6 +185,7 @@
 				BB000000000000000000000C /* TranscriptPipeline.swift in Sources */,
 				BB000000000000000000000D /* ResponseOrchestrator.swift in Sources */,
 				BB0000000000000000000007 /* MeetingAICoordinator.swift in Sources */,
+				BB000000000000000000000F /* KeychainManager.swift in Sources */,
 				BB000000000000000000000E /* DemoDataProvider.swift in Sources */,
 				BB0000000000000000000008 /* UsageExample.swift in Sources */,
 			);
@@ -316,7 +320,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -347,7 +351,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
