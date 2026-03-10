@@ -25,6 +25,7 @@
 		BB0000000000000000000010 /* MeetingSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000013 /* MeetingSessionStore.swift */; };
 		BB0000000000000000000011 /* MeetingPrepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000014 /* MeetingPrepView.swift */; };
 		BB0000000000000000000012 /* NotionRetrievalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000015 /* NotionRetrievalService.swift */; };
+		BB0000000000000000000013 /* SystemMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000016 /* SystemMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 		FF0000000000000000000013 /* MeetingSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSessionStore.swift; sourceTree = "<group>"; };
 		FF0000000000000000000014 /* MeetingPrepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPrepView.swift; sourceTree = "<group>"; };
 		FF0000000000000000000015 /* NotionRetrievalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotionRetrievalService.swift; sourceTree = "<group>"; };
+		FF0000000000000000000016 /* SystemMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,6 +90,7 @@
 				FF0000000000000000000012 /* KeychainManager.swift */,
 				FF0000000000000000000013 /* MeetingSessionStore.swift */,
 				FF0000000000000000000014 /* MeetingPrepView.swift */,
+				FF0000000000000000000016 /* SystemMonitor.swift */,
 				FF0000000000000000000011 /* DemoDataProvider.swift */,
 				FF0000000000000000000008 /* UsageExample.swift */,
 			);
@@ -198,6 +201,7 @@
 				BB000000000000000000000F /* KeychainManager.swift in Sources */,
 				BB0000000000000000000010 /* MeetingSessionStore.swift in Sources */,
 				BB0000000000000000000011 /* MeetingPrepView.swift in Sources */,
+				BB0000000000000000000013 /* SystemMonitor.swift in Sources */,
 				BB000000000000000000000E /* DemoDataProvider.swift in Sources */,
 				BB0000000000000000000008 /* UsageExample.swift in Sources */,
 			);
@@ -332,7 +336,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -363,7 +367,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
