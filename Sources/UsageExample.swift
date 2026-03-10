@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.3 — SwiftUI Main View
-// Updated: Meeting Prep + Dual-stream + Keychain + Transcript Export + Language
+// Updated: Dual-stream colored transcript + TP detected speech
 
 import SwiftUI
 import AppKit
@@ -14,9 +14,8 @@ struct MeetingTeleprompterView: View {
     @State private var showPrepView = true
     @State private var manualQuestion = ""
     @State private var meetingTitle = "Meeting"
-    @State private var activeSpeechLanguage = "zh-TW"  // ★ 顯示用
+    @State private var activeSpeechLanguage = "zh-TW"
 
-    // 會後儲存
     @State private var showPostMeetingSave = false
     @State private var savedTranscript = ""
     @State private var savedCards: [AICard] = []
@@ -71,32 +70,22 @@ struct MeetingTeleprompterView: View {
         }
     }
 
-    // MARK: ★ 載入會前資料 + 用選擇的語言啟動會議
-
     private func loadPrepAndStart(_ result: MeetingPrepResult) async {
         meetingTitle = result.context.goals.first ?? "Meeting"
-        activeSpeechLanguage = result.speechLocale.identifier  // ★ 記住語言
-
+        activeSpeechLanguage = result.speechLocale.identifier
         await coordinator.updateContext(result.context)
         await coordinator.loadKnowledgeBase(result.qaItems)
         await coordinator.loadTalkingPoints(result.talkingPoints, meetingDurationMinutes: result.durationMinutes)
-
-        // ★ 用選擇的語言建立 AudioCaptureConfiguration
         let config = AudioCaptureConfiguration(
-            sampleRate: 48000.0,
-            channelCount: 1,
-            speechLocale: result.speechLocale,  // ★ 從會前準備傳入
-            enablePartialResults: true,
-            bufferSize: 1024,
-            autoDetectMeetingApp: true
+            sampleRate: 48000.0, channelCount: 1,
+            speechLocale: result.speechLocale,
+            enablePartialResults: true, bufferSize: 1024, autoDetectMeetingApp: true
         )
         await coordinator.startMeeting(config: config)
         isSessionActive = true
         showPrepView = false
         meetingStartTime = Date()
     }
-
-    // MARK: 停止會議
 
     private func stopMeeting() async {
         savedTranscript = coordinator.fullTranscript
@@ -156,8 +145,6 @@ struct MeetingTeleprompterView: View {
         }.padding(24)
     }
 
-    // MARK: 儲存逐字稿
-
     private func saveTranscriptToFile() {
         let content = buildTranscriptTXT()
         let panel = NSSavePanel()
@@ -187,7 +174,7 @@ struct MeetingTeleprompterView: View {
         lines.append("開始時間: \(startStr)")
         lines.append("結束時間: \(endStr)")
         if let d = savedStats.sessionDuration { lines.append("會議時長: \(Int(d / 60)) 分鐘") }
-        lines.append("語音辨識: \(activeSpeechLanguage)")  // ★
+        lines.append("語音辨識: \(activeSpeechLanguage)")
         lines.append("")
         lines.append("── 統計 ──────────────────────────────────────────")
         lines.append("本地匹配: \(savedStats.localMatches)")
@@ -205,6 +192,9 @@ struct MeetingTeleprompterView: View {
             case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
             }
             lines.append("  \(icon) [\(tp.priority.rawValue)] \(tp.content)")
+            if let speech = tp.detectedSpeech {
+                lines.append("     偵測: \(speech)")
+            }
         }
         lines.append("")
         lines.append("── 逐字稿 ────────────────────────────────────────")
@@ -261,11 +251,9 @@ struct MeetingTeleprompterView: View {
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color.green.opacity(0.1)).cornerRadius(4)
             }
-            // ★ 顯示語言
             if isSessionActive {
                 Text(activeSpeechLanguage)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.blue)
+                    .font(.system(size: 10, design: .monospaced)).foregroundColor(.blue)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(Color.blue.opacity(0.1)).cornerRadius(4)
             }
@@ -344,7 +332,7 @@ struct MeetingTeleprompterView: View {
         .background(color.opacity(0.1)).cornerRadius(4)
     }
 
-    // MARK: Transcript Panel
+    // MARK: ★ Transcript Panel（分色顯示）
 
     private var transcriptPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -352,17 +340,39 @@ struct MeetingTeleprompterView: View {
                 Text("LIVE TRANSCRIPT").font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
                 Spacer()
                 if coordinator.hasDualStream {
-                    Text("對方").font(.system(size: 9)).foregroundColor(.white.opacity(0.5))
-                    Text("/").font(.system(size: 9)).foregroundColor(.gray)
-                    Text("我方").font(.system(size: 9)).foregroundColor(.cyan.opacity(0.5))
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.white).frame(width: 5, height: 5)
+                        Text("對方").font(.system(size: 9)).foregroundColor(.white.opacity(0.6))
+                        Circle().fill(Color.cyan).frame(width: 5, height: 5)
+                        Text("我方").font(.system(size: 9)).foregroundColor(.cyan.opacity(0.6))
+                    }
                 }
             }
             .padding(.horizontal, 12).padding(.top, 8)
-            ScrollView {
-                Text(coordinator.fullTranscript.isEmpty
-                    ? "等待會議音訊..." : coordinator.fullTranscript)
-                    .font(.system(size: 13)).foregroundColor(.white.opacity(0.8))
-                    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if coordinator.transcriptEntries.isEmpty {
+                        Text("等待會議音訊...")
+                            .font(.system(size: 13)).foregroundColor(.gray.opacity(0.4))
+                            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(coordinator.transcriptEntries) { entry in
+                                TranscriptEntryRow(entry: entry, isDualStream: coordinator.hasDualStream)
+                                    .id(entry.id)
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
+                .onChange(of: coordinator.transcriptEntries.count) { _, _ in
+                    if let last = coordinator.transcriptEntries.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
             }
         }
         .background(Color(hex: "0D0D14"))
@@ -402,7 +412,7 @@ struct MeetingTeleprompterView: View {
             if coordinator.isNotebookLMQuerying {
                 HStack(spacing: 4) {
                     ProgressView().scaleEffect(0.5)
-                    Text("NotebookLM 搜尋中...").font(.system(size: 11)).foregroundColor(.teal)
+                    Text("RAG 搜尋中...").font(.system(size: 11)).foregroundColor(.teal)
                 }
             }
             if coordinator.isClaudeStreaming {
@@ -465,7 +475,7 @@ struct MeetingTeleprompterView: View {
             Group {
                 statRow("Q&A Loaded", "\(coordinator.stats.qaItemsLoaded)")
                 statRow("🔵 Local Match", "\(coordinator.stats.localMatches)")
-                statRow("📚 NLM Queries", "\(coordinator.stats.notebookLMQueries)")
+                statRow("📚 RAG Queries", "\(coordinator.stats.notebookLMQueries)")
                 statRow("🟣 Claude Queries", "\(coordinator.stats.claudeQueries)")
                 statRow("🟠 Strategy", "\(coordinator.stats.strategyAnalyses)")
                 statRow("Avg Latency", "\(String(format: "%.0f", coordinator.stats.averageClaudeLatencyMs))ms")
@@ -531,37 +541,101 @@ struct MeetingTeleprompterView: View {
 }
 
 
-// MARK: - Talking Point Row
+// MARK: - ★ Transcript Entry Row（分色）
+
+struct TranscriptEntryRow: View {
+    let entry: TranscriptEntry
+    let isDualStream: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            if isDualStream {
+                // 說話者標籤
+                Text(entry.speakerLabel)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(speakerColor.opacity(0.7))
+                    .frame(width: 24)
+                    .padding(.top, 2)
+
+                // 左邊色條
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(speakerColor.opacity(0.4))
+                    .frame(width: 2)
+            }
+
+            Text(entry.text)
+                .font(.system(size: 13))
+                .foregroundColor(textColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var speakerColor: Color {
+        entry.speaker == .remote ? .white : .cyan
+    }
+
+    private var textColor: Color {
+        entry.speaker == .remote ? .white.opacity(0.85) : .cyan.opacity(0.7)
+    }
+}
+
+
+// MARK: - ★ Talking Point Row（含偵測標示）
 
 struct TalkingPointRow: View {
     let talkingPoint: TalkingPoint
     let onComplete: () -> Void
     let onSkip: () -> Void
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            statusIcon.frame(width: 16)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    priorityBadge
-                    Text(talkingPoint.content)
-                        .font(.system(size: 12, weight: isCompleted ? .regular : .medium))
-                        .foregroundColor(isCompleted ? .gray : .white)
-                        .strikethrough(isCompleted).lineLimit(2)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: 8) {
+                statusIcon.frame(width: 16)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        priorityBadge
+                        Text(talkingPoint.content)
+                            .font(.system(size: 12, weight: isCompleted ? .regular : .medium))
+                            .foregroundColor(isCompleted ? .gray : .white)
+                            .strikethrough(isCompleted).lineLimit(2)
+                    }
+                    if let data = talkingPoint.supportingData, !isCompleted {
+                        Text(data).font(.system(size: 10)).foregroundColor(.gray.opacity(0.7)).lineLimit(1)
+                    }
                 }
-                if let data = talkingPoint.supportingData, !isCompleted {
-                    Text(data).font(.system(size: 10)).foregroundColor(.gray.opacity(0.7)).lineLimit(1)
+                Spacer()
+                if talkingPoint.status == .pending || talkingPoint.status == .inProgress {
+                    HStack(spacing: 4) {
+                        Button(action: onComplete) {
+                            Image(systemName: "checkmark").font(.system(size: 9)).foregroundColor(.green.opacity(0.7))
+                        }.buttonStyle(.plain)
+                        Button(action: onSkip) {
+                            Image(systemName: "forward").font(.system(size: 9)).foregroundColor(.gray.opacity(0.5))
+                        }.buttonStyle(.plain)
+                    }
                 }
             }
-            Spacer()
-            if talkingPoint.status == .pending || talkingPoint.status == .inProgress {
+
+            // ★ 偵測到我方已講標示
+            if let speech = talkingPoint.detectedSpeech {
                 HStack(spacing: 4) {
-                    Button(action: onComplete) {
-                        Image(systemName: "checkmark").font(.system(size: 9)).foregroundColor(.green.opacity(0.7))
-                    }.buttonStyle(.plain)
-                    Button(action: onSkip) {
-                        Image(systemName: "forward").font(.system(size: 9)).foregroundColor(.gray.opacity(0.5))
-                    }.buttonStyle(.plain)
+                    if talkingPoint.status == .completed {
+                        Image(systemName: "checkmark.message.fill")
+                            .font(.system(size: 8)).foregroundColor(.green.opacity(0.7))
+                        Text("偵測到我方已講")
+                            .font(.system(size: 9, weight: .medium)).foregroundColor(.green.opacity(0.7))
+                    } else {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 8)).foregroundColor(.blue.opacity(0.6))
+                        Text("偵測中")
+                            .font(.system(size: 9, weight: .medium)).foregroundColor(.blue.opacity(0.6))
+                    }
+                    Text(speech)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.gray.opacity(0.5))
+                        .lineLimit(1)
                 }
+                .padding(.leading, 24)
             }
         }
         .padding(.vertical, 4).padding(.horizontal, 6)
