@@ -1,12 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // TranscriptPipeline.swift
-// MeetingCopilot v4.3 — 雙串流逐字稿管線（說話者分離 + Structured Entries）
-// ═══════════════════════════════════════════════════════════════════════════
-//
-//  SystemAudioEngine  →  「對方的聲音」  →  .remote
-//  MicrophoneEngine   →  「我的聲音」    →  .local
-//
-//  Platform: macOS 14.0+
+// MeetingCopilot v4.3 — 雙串流 + Audio Health Monitoring
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -18,7 +12,7 @@ enum SpeakerSource: String, Sendable {
     case local  = "local"
 }
 
-// MARK: - ★ Structured Transcript Entry（UI 分色用）
+// MARK: - Structured Transcript Entry
 
 struct TranscriptEntry: Identifiable, Sendable {
     let id = UUID()
@@ -26,12 +20,8 @@ struct TranscriptEntry: Identifiable, Sendable {
     let speaker: SpeakerSource
     let text: String
     let isFinal: Bool
-
     var speakerLabel: String {
-        switch speaker {
-        case .remote: return "對方"
-        case .local:  return "我方"
-        }
+        switch speaker { case .remote: return "對方"; case .local: return "我方" }
     }
 }
 
@@ -43,7 +33,42 @@ struct TranscriptUpdate: Sendable {
     let segment: TranscriptSegment
     let speaker: SpeakerSource
     let detectedQuestion: String?
-    let entry: TranscriptEntry            // ★ structured entry
+    let entry: TranscriptEntry
+}
+
+// MARK: - ★ Audio Health Status
+
+struct AudioHealthStatus: Sendable {
+    let remoteActive: Bool          // 對方音訊活躍
+    let localActive: Bool           // 我方音訊活躍
+    let remoteLastReceived: Date?   // 最後收到對方音訊的時間
+    let localLastReceived: Date?    // 最後收到我方音訊的時間
+    let remoteSegmentCount: Int
+    let localSegmentCount: Int
+    let startupMessage: String?     // 啟動通知訊息
+
+    enum StreamStatus: String, Sendable {
+        case active = "活躍"         // 近 10 秒內有收到音訊
+        case idle = "靜音"           // 10-30 秒無音訊
+        case disconnected = "斷線"   // > 30 秒無音訊
+        case notStarted = "未啟動"
+    }
+
+    func remoteStatus(now: Date = Date()) -> StreamStatus {
+        guard let last = remoteLastReceived else { return remoteActive ? .idle : .notStarted }
+        let elapsed = now.timeIntervalSince(last)
+        if elapsed < 10 { return .active }
+        if elapsed < 30 { return .idle }
+        return .disconnected
+    }
+
+    func localStatus(now: Date = Date()) -> StreamStatus {
+        guard let last = localLastReceived else { return localActive ? .idle : .notStarted }
+        let elapsed = now.timeIntervalSince(last)
+        if elapsed < 10 { return .active }
+        if elapsed < 30 { return .idle }
+        return .disconnected
+    }
 }
 
 // MARK: - Dual-Stream Transcript Pipeline
@@ -57,10 +82,17 @@ actor TranscriptPipeline {
     private(set) var remoteTranscript: String = ""
     private(set) var localTranscript: String = ""
     private(set) var hasDualStream: Bool = false
-
-    // ★ Structured entries（UI 分色用）
     private(set) var transcriptEntries: [TranscriptEntry] = []
-    private let maxEntries = 200  // 最多保留 200 條
+    private let maxEntries = 200
+
+    // ★ Audio Health Tracking
+    private var remoteLastReceived: Date?
+    private var localLastReceived: Date?
+    private var remoteSegmentCount: Int = 0
+    private var localSegmentCount: Int = 0
+    private var remoteEngineStarted: Bool = false
+    private var localEngineStarted: Bool = false
+    private var _startupMessage: String?
 
     private var systemAudioEngine: SystemAudioCaptureEngine?
     private var microphoneEngine: MicrophoneCaptureEngine?
@@ -76,6 +108,19 @@ actor TranscriptPipeline {
         self.continuation = cont
     }
 
+    // ★ 取得音訊健康狀態
+    var audioHealth: AudioHealthStatus {
+        AudioHealthStatus(
+            remoteActive: remoteEngineStarted,
+            localActive: localEngineStarted,
+            remoteLastReceived: remoteLastReceived,
+            localLastReceived: localLastReceived,
+            remoteSegmentCount: remoteSegmentCount,
+            localSegmentCount: localSegmentCount,
+            startupMessage: _startupMessage
+        )
+    }
+
     // ═ Start ═
 
     func start(config: AudioCaptureConfiguration = .default) async throws {
@@ -87,6 +132,7 @@ actor TranscriptPipeline {
             try await sysEngine.start()
             self.systemAudioEngine = sysEngine
             systemOK = true
+            remoteEngineStarted = true
             print("🎤 DualStream: SystemAudio (remote) started")
         } catch {
             print("⚠️ DualStream: SystemAudio failed — \(error.localizedDescription)")
@@ -97,6 +143,7 @@ actor TranscriptPipeline {
             try await micEngine.start()
             self.microphoneEngine = micEngine
             micOK = true
+            localEngineStarted = true
             print("🎤 DualStream: Microphone (local) started")
         } catch {
             print("⚠️ DualStream: Microphone failed — \(error.localizedDescription)")
@@ -106,23 +153,24 @@ actor TranscriptPipeline {
             hasDualStream = true
             activeEngineType = .systemAudio
             captureState = .capturing
+            _startupMessage = "✅ 雙串流啟動成功：系統音訊（對方）+ 麥克風（我方）"
             startRemoteConsumer()
             startLocalConsumer()
-            print("✅ DualStream: DUAL mode — remote + local separation active")
         } else if systemOK {
             hasDualStream = false
             activeEngineType = .systemAudio
             captureState = .capturing
+            _startupMessage = "⚠️ 僅系統音訊啟動，麥克風權限未授權"
             startRemoteConsumer()
-            print("⚠️ DualStream: SystemAudio only — no speaker separation")
         } else if micOK {
             hasDualStream = false
             activeEngineType = .microphone
             captureState = .capturing
+            _startupMessage = "⚠️ 僅麥克風啟動，系統音訊權限未授權（需在系統設定開啟螢幕錄製）"
             startLocalConsumer()
-            print("⚠️ DualStream: Microphone only (fallback) — no speaker separation")
         } else {
             captureState = .error(.engineStartFailed("所有音訊引擎都無法啟動"))
+            _startupMessage = "❌ 音訊啟動失敗！請檢查螢幕錄製和麥克風權限"
             throw AudioCaptureError.engineStartFailed("所有音訊引擎都無法啟動")
         }
     }
@@ -141,6 +189,9 @@ actor TranscriptPipeline {
         captureState = .idle
         activeEngineType = nil
         hasDualStream = false
+        remoteEngineStarted = false
+        localEngineStarted = false
+        _startupMessage = nil
         continuation?.finish()
     }
 
@@ -169,20 +220,23 @@ actor TranscriptPipeline {
     // ═ Process Segment ═
 
     private func processSegment(_ segment: TranscriptSegment, speaker: SpeakerSource) {
+        // ★ 更新音訊健康追蹤
         switch speaker {
-        case .remote: remoteTranscript = segment.text
-        case .local:  localTranscript = segment.text
+        case .remote:
+            remoteTranscript = segment.text
+            remoteLastReceived = Date()
+            remoteSegmentCount += 1
+        case .local:
+            localTranscript = segment.text
+            localLastReceived = Date()
+            localSegmentCount += 1
         }
 
-        // ★ Structured entry
         let entry = TranscriptEntry(
-            timestamp: segment.timestamp,
-            speaker: speaker,
-            text: segment.text,
-            isFinal: segment.isFinal
+            timestamp: segment.timestamp, speaker: speaker,
+            text: segment.text, isFinal: segment.isFinal
         )
 
-        // 僅在 final 時加入 entries 陣列（避免 partial results 洗版）
         if segment.isFinal && segment.text.count > 3 {
             transcriptEntries.append(entry)
             if transcriptEntries.count > maxEntries {
@@ -204,21 +258,15 @@ actor TranscriptPipeline {
         }
 
         continuation?.yield(TranscriptUpdate(
-            fullText: fullTranscript,
-            recentText: recentTranscript,
-            segment: segment,
-            speaker: speaker,
-            detectedQuestion: detectedQuestion,
-            entry: entry
+            fullText: fullTranscript, recentText: recentTranscript,
+            segment: segment, speaker: speaker,
+            detectedQuestion: detectedQuestion, entry: entry
         ))
     }
 
     private func buildMergedTranscript() -> String {
         if hasDualStream {
-            // 用 structured entries 組合
-            return transcriptEntries.map { e in
-                "[\(e.speakerLabel)] \(e.text)"
-            }.joined(separator: "\n")
+            return transcriptEntries.map { "[\($0.speakerLabel)] \($0.text)" }.joined(separator: "\n")
         } else {
             return remoteTranscript.isEmpty ? localTranscript : remoteTranscript
         }
