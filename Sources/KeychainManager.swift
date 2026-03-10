@@ -10,7 +10,7 @@ enum KeychainManager {
 
     enum Key: String, CaseIterable {
         case claudeAPIKey = "claude_api_key"
-        case notionAPIKey = "notion_api_key"                // ★ v4.3 新增
+        case notionAPIKey = "notion_api_key"
         case notebookLMNotebookId = "notebooklm_notebook_id"
         case notebookLMBridgeURL = "notebooklm_bridge_url"
 
@@ -40,7 +40,8 @@ enum KeychainManager {
         }
     }
 
-    private static let service = "com.macrovision.MeetingCopilot"
+    // ★ Bundle ID 更新為 com.RealityMatrix
+    private static let service = "com.RealityMatrix.MeetingCopilot"
 
     @discardableResult
     static func save(key: Key, value: String) -> Bool {
@@ -95,7 +96,6 @@ enum KeychainManager {
         return key
     }
 
-    // ★ Notion API Key
     static var notionAPIKey: String? {
         let key = load(key: .notionAPIKey)
         guard let k = key, !k.isEmpty else { return nil }
