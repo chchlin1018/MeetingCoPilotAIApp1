@@ -162,10 +162,11 @@ final class MeetingAICoordinator {
                 case .cardInserted(let card):
                     self.cards = await self.orchestrator.cards
                     self.stats = await self.orchestrator.stats
-                    // ★ Persistence: 存入卡片
+                    // ★ Persistence: 存入卡片（Float → Double 轉型）
                     if let record = self.currentSessionRecord {
                         let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue,
-                            title: card.title, content: card.content, confidence: card.confidence,
+                            title: card.title, content: card.content,
+                            confidence: Double(card.confidence),
                             latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
                         cr.session = record
                         record.cards.append(cr)
