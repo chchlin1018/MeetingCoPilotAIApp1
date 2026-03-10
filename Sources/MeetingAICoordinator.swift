@@ -1,21 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.2 — 瘦身版 Coordinator（只做 Orchestration）
+// MeetingCopilot v4.3 — 雙串流 Coordinator（說話者分離）
 // ═══════════════════════════════════════════════════════════════════════════
 //
-//  v4.1 → v4.2: God Object 拆分
-//
-//  v4.1 Coordinator 做 11 件事。v4.2 只做 3 件：
-//  1. 會議啟停（生命週期管理）
-//  2. 組裝 TranscriptPipeline + ResponseOrchestrator + TPTracker
-//  3. @Observable UI 狀態代理（SwiftUI 綁定）
-//
-//  拆出去的模組：
-//  - TranscriptPipeline    — 音訊引擎 + 轉錄 + 問題偵測
-//  - ResponseOrchestrator  — 三層管線 + 策略分析 + 卡片
-//  - ProviderProtocols     — 抽象 Provider 介面
-//
-//  行數：v4.1 650 行 → v4.2 ~280 行（減 57%）
+//  v4.2 → v4.3 核心變更：
+//  - TranscriptUpdate 新增 speaker: SpeakerSource (.remote / .local)
+//  - .remote → ResponseOrchestrator（觸發問題偵測 + 三層管線）
+//  - .local  → TalkingPointsTracker（偵測「我講了什麼」）
+//  - UI 新增 hasDualStream 狀態指示
 //
 //  Platform: macOS 14.0+
 // ═══════════════════════════════════════════════════════════════════════════
@@ -38,6 +30,7 @@ final class MeetingAICoordinator {
     private(set) var isNotebookLMAvailable: Bool = false
     private(set) var isNotebookLMQuerying: Bool = false
     private(set) var isClaudeStreaming: Bool = false
+    private(set) var hasDualStream: Bool = false            // ★ v4.3 新增
     private(set) var stats = SessionStats()
 
     // MARK: 子系統
@@ -72,6 +65,7 @@ final class MeetingAICoordinator {
             try await pipeline.start(config: config)
             self.captureState = await pipeline.captureState
             self.activeEngineType = await pipeline.activeEngineType
+            self.hasDualStream = await pipeline.hasDualStream  // ★ v4.3
         } catch { self.captureState = .error(.engineStartFailed("引擎啟動失敗")); return }
 
         await orchestrator.checkNotebookLMAvailability()
@@ -87,7 +81,8 @@ final class MeetingAICoordinator {
         pipelineConsumerTask?.cancel(); eventConsumerTask?.cancel()
         strategyTask?.cancel(); tpUpdateTask?.cancel()
         await pipeline.stop(); await orchestrator.markSessionEnd()
-        captureState = .idle; activeEngineType = nil; isClaudeStreaming = false; isNotebookLMQuerying = false
+        captureState = .idle; activeEngineType = nil
+        isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
     }
@@ -101,25 +96,37 @@ final class MeetingAICoordinator {
     func markTPCompleted(_ id: UUID) async { await tpTracker.markCompleted(id); await syncTPState() }
     func markTPSkipped(_ id: UUID) async { await tpTracker.markSkipped(id); await syncTPState() }
 
-    // MARK: 內部管線
+    // MARK: ★ 雙串流管線消費（v4.3 核心變更）
     private func startPipelineConsumer() {
         pipelineConsumerTask = Task { [weak self] in
             guard let self else { return }
             let updates = await self.pipeline.updates!
             for await update in updates {
                 guard !Task.isCancelled else { break }
-                self.fullTranscript = update.fullText; self.recentTranscript = update.recentText
-                let reminders = await self.tpTracker.analyzeTranscript(update.fullText)
-                await self.syncTPState()
-                for r in reminders { await self.orchestrator.handleTPReminder(r) }
-                let tp = await self.tpTracker.getStats()
-                let um = await self.tpTracker.getAllTalkingPoints()
-                    .filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
-                await self.orchestrator.processUpdate(update, tpStats: tp, unfinishedMust: um)
+
+                // 更新 UI 逐字稿（雙方合併）
+                self.fullTranscript = update.fullText
+                self.recentTranscript = update.recentText
+
+                switch update.speaker {
+                case .remote:
+                    // ★ 對方的聲音 → 進入三層管線（問題偵測 + AI 回應）
+                    let tpStats = await self.tpTracker.getStats()
+                    let unfinished = await self.tpTracker.getAllTalkingPoints()
+                        .filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
+                    await self.orchestrator.processUpdate(update, tpStats: tpStats, unfinishedMust: unfinished)
+
+                case .local:
+                    // ★ 我的聲音 → 僅用於 TP 追蹤（偵測「我講了什麼」）
+                    let reminders = await self.tpTracker.analyzeTranscript(update.segment.text)
+                    await self.syncTPState()
+                    for r in reminders { await self.orchestrator.handleTPReminder(r) }
+                }
             }
         }
     }
 
+    // ─── 事件消費（同步 Orchestrator → UI）───
     private func startEventConsumer() {
         eventConsumerTask = Task { [weak self] in
             guard let self else { return }
@@ -138,6 +145,7 @@ final class MeetingAICoordinator {
         }
     }
 
+    // ─── 背景策略分析 ───
     private func startPeriodicStrategy() {
         strategyTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000_000)
