@@ -17,6 +17,10 @@
 		BB0000000000000000000008 /* UsageExample.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000008 /* UsageExample.swift */; };
 		BB0000000000000000000009 /* MeetingCopilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000009 /* MeetingCopilotApp.swift */; };
 		BB000000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FF000000000000000000000C /* Assets.xcassets */; };
+		BB000000000000000000000B /* ProviderProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000000000000000000000E /* ProviderProtocols.swift */; };
+		BB000000000000000000000C /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000000000000000000000F /* TranscriptPipeline.swift */; };
+		BB000000000000000000000D /* ResponseOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000010 /* ResponseOrchestrator.swift */; };
+		BB000000000000000000000E /* DemoDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000011 /* DemoDataProvider.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +37,10 @@
 		FF000000000000000000000B /* MeetingCopilot.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MeetingCopilot.entitlements; sourceTree = "<group>"; };
 		FF000000000000000000000C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FF000000000000000000000D /* MeetingCopilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeetingCopilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF000000000000000000000E /* ProviderProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderProtocols.swift; sourceTree = "<group>"; };
+		FF000000000000000000000F /* TranscriptPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPipeline.swift; sourceTree = "<group>"; };
+		FF0000000000000000000010 /* ResponseOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponseOrchestrator.swift; sourceTree = "<group>"; };
+		FF0000000000000000000011 /* DemoDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDataProvider.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,7 +72,11 @@
 				FF0000000000000000000004 /* KeywordMatcherAndClaude.swift */,
 				FF0000000000000000000005 /* NotebookLMService.swift */,
 				FF0000000000000000000006 /* TalkingPointsTracker.swift */,
+				FF000000000000000000000E /* ProviderProtocols.swift */,
+				FF000000000000000000000F /* TranscriptPipeline.swift */,
+				FF0000000000000000000010 /* ResponseOrchestrator.swift */,
 				FF0000000000000000000007 /* MeetingAICoordinator.swift */,
+				FF0000000000000000000011 /* DemoDataProvider.swift */,
 				FF0000000000000000000008 /* UsageExample.swift */,
 			);
 			path = Sources;
@@ -166,7 +178,11 @@
 				BB0000000000000000000004 /* KeywordMatcherAndClaude.swift in Sources */,
 				BB0000000000000000000005 /* NotebookLMService.swift in Sources */,
 				BB0000000000000000000006 /* TalkingPointsTracker.swift in Sources */,
+				BB000000000000000000000B /* ProviderProtocols.swift in Sources */,
+				BB000000000000000000000C /* TranscriptPipeline.swift in Sources */,
+				BB000000000000000000000D /* ResponseOrchestrator.swift in Sources */,
 				BB0000000000000000000007 /* MeetingAICoordinator.swift in Sources */,
+				BB000000000000000000000E /* DemoDataProvider.swift in Sources */,
 				BB0000000000000000000008 /* UsageExample.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -300,7 +316,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -314,7 +330,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.macrovision.MeetingCopilot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -331,7 +347,7 @@
 				CODE_SIGN_ENTITLEMENTS = MeetingCopilot/MeetingCopilot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -345,7 +361,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.macrovision.MeetingCopilot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

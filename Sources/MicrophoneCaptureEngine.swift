@@ -1,6 +1,6 @@
 // MicrophoneCaptureEngine.swift
-// MeetingCopilot v4.0 — Fallback: Microphone Capture Engine
-// When ScreenCaptureKit permission is denied.
+// MeetingCopilot v4.2 — Fallback: Microphone Capture Engine
+// Fixed: Actor isolation for Swift Strict Concurrency
 
 import Foundation
 import AVFoundation
@@ -16,11 +16,14 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
+    // Fix: Use nonisolated(unsafe) to allow nonisolated access
+    // This is safe because _state is only mutated on the actor
+    nonisolated(unsafe) private var _state: AudioCaptureState = .idle
+    
     nonisolated var state: AudioCaptureState {
-        get { _state }
+        _state
     }
     
-    private var _state: AudioCaptureState = .idle
     private var streamContinuation: AsyncStream<TranscriptSegment>.Continuation?
     private let audioEngine = AVAudioEngine()
     private var speechRecognizer: SFSpeechRecognizer?
@@ -83,7 +86,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
         
         _state = .capturing
-        print("MicrophoneCaptureEngine started (fallback mode)")
     }
     
     func stop() async {
