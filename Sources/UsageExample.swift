@@ -1,6 +1,6 @@
 // UsageExample.swift
-// MeetingCopilot v4.2 — SwiftUI Usage Example
-// Updated: Uses KeychainManager for API keys (no more hardcoded secrets)
+// MeetingCopilot v4.3 — SwiftUI Main View
+// Updated: Meeting Prep UI + Dual-stream + Keychain
 
 import SwiftUI
 
@@ -10,97 +10,154 @@ struct MeetingTeleprompterView: View {
 
     @State private var coordinator: MeetingAICoordinator
     @State private var isSessionActive = false
+    @State private var showPrepView = true           // ★ 預設顯示會前準備
     @State private var manualQuestion = ""
+    @State private var meetingTitle = "Meeting"       // ★ 從 Prep 傳入
 
     init() {
-        // v4.2: Read API key from Keychain (no hardcoded secrets)
         let apiKey = KeychainManager.claudeAPIKey ?? "NOT_CONFIGURED"
         let nlmConfig = KeychainManager.notebookLMConfig
-
+        // 初始化用空 context，會前準備時再替換
+        let emptyContext = MeetingContext(goals: [], preAnalysisCache: "",
+            relevantQA: [], recentTranscript: "", attendeeInfo: "", meetingType: "")
         _coordinator = State(initialValue: MeetingAICoordinator(
-            claudeAPIKey: apiKey,
-            notebookLMConfig: nlmConfig,
-            meetingContext: DemoDataProvider.umcMeetingContext
+            claudeAPIKey: apiKey, notebookLMConfig: nlmConfig, meetingContext: emptyContext
         ))
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            headerBar
-            HStack(spacing: 0) {
-                transcriptPanel.frame(width: 320)
-                Divider()
-                teleprompterPanel
-                Divider()
-                rightSidebar.frame(width: 300)
+        ZStack {
+            // 會議主畫面
+            VStack(spacing: 0) {
+                headerBar
+                HStack(spacing: 0) {
+                    transcriptPanel.frame(width: 320)
+                    Divider()
+                    teleprompterPanel
+                    Divider()
+                    rightSidebar.frame(width: 300)
+                }
+                manualQueryBar
             }
-            manualQueryBar
+            .background(Color(hex: "0A0A0F"))
+            .preferredColorScheme(.dark)
+
+            // ★ 會前準備畫面（覆蓋在主畫面上）
+            if showPrepView {
+                Color.black.opacity(0.7).ignoresSafeArea()
+                MeetingPrepView { result in
+                    Task { await loadPrepAndStart(result) }
+                }
+                .frame(maxWidth: 900, maxHeight: 700)
+                .background(.ultraThinMaterial)
+                .cornerRadius(16)
+                .shadow(radius: 20)
+            }
         }
-        .background(Color(hex: "0A0A0F"))
-        .preferredColorScheme(.dark)
-        .task { await loadDemoData() }
+    }
+
+    // MARK: 載入會前資料 + 啟動會議
+
+    private func loadPrepAndStart(_ result: MeetingPrepResult) async {
+        meetingTitle = result.context.goals.first ?? "Meeting"
+
+        // 更新 context
+        await coordinator.updateContext(result.context)
+
+        // 載入 Q&A + TP
+        await coordinator.loadKnowledgeBase(result.qaItems)
+        await coordinator.loadTalkingPoints(result.talkingPoints, meetingDurationMinutes: result.durationMinutes)
+
+        // 啟動會議
+        await coordinator.startMeeting()
+        isSessionActive = true
+        showPrepView = false
     }
 
     // MARK: Header Bar
 
     private var headerBar: some View {
         HStack(spacing: 12) {
+            // 引擎狀態
             HStack(spacing: 6) {
                 Circle()
                     .fill(coordinator.captureState.isActive ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
                 if let engineType = coordinator.activeEngineType {
                     Text(engineType.rawValue)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 11, design: .monospaced)).foregroundColor(.gray)
                 }
             }
+
+            // 雙串流狀態
+            if coordinator.hasDualStream {
+                HStack(spacing: 3) {
+                    Image(systemName: "person.2.wave.2").font(.system(size: 9))
+                    Text("雙串流").font(.system(size: 10))
+                }
+                .foregroundColor(.green)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Color.green.opacity(0.1)).cornerRadius(4)
+            }
+
             notebookLMStatusBadge
 
-            // API Key 狀態
             if !KeychainManager.hasClaudeAPIKey {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                        .font(.system(size: 10))
-                    Text("API Key 未設定")
-                        .font(.system(size: 10))
-                        .foregroundColor(.orange)
+                        .foregroundColor(.orange).font(.system(size: 10))
+                    Text("API Key 未設定").font(.system(size: 10)).foregroundColor(.orange)
                 }
             }
 
             Spacer()
-            Text("UMC Digital Twin Meeting")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
+
+            Text(meetingTitle)
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
+                .lineLimit(1)
+
             Spacer()
+
             HStack(spacing: 10) {
                 statBadge("🔵", "\(coordinator.stats.localMatches)", .cyan)
                 statBadge("📚", "\(coordinator.stats.notebookLMQueries)", .teal)
                 statBadge("🟣", "\(coordinator.stats.claudeQueries)", .purple)
                 statBadge("🟠", "\(coordinator.stats.strategyAnalyses)", .orange)
                 Text("$\(String(format: "%.2f", coordinator.stats.estimatedClaudeCost))")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.orange)
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.orange)
             }
+
             tpCompletionBadge
-            Button(action: { Task { await toggleSession() } }) {
-                Text(isSessionActive ? "End Meeting" : "Start Meeting")
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 16).padding(.vertical, 6)
-                    .background(isSessionActive ? Color.red.opacity(0.8) : Color.green.opacity(0.8))
-                    .cornerRadius(6)
+
+            // ★ 會議控制按鈕
+            if isSessionActive {
+                Button(action: { Task { await stopMeeting() } }) {
+                    Text("End Meeting").font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 16).padding(.vertical, 6)
+                        .background(Color.red.opacity(0.8)).cornerRadius(6)
+                }.buttonStyle(.plain)
+            } else {
+                Button("準備會議") {
+                    showPrepView = true
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 16).padding(.vertical, 6)
+                .background(Color.purple.opacity(0.8)).cornerRadius(6)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(Color(hex: "111118"))
     }
 
+    private func stopMeeting() async {
+        await coordinator.stopMeeting()
+        isSessionActive = false
+    }
+
     private var notebookLMStatusBadge: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(coordinator.isNotebookLMAvailable ? Color.teal : Color.gray.opacity(0.5))
+            Circle().fill(coordinator.isNotebookLMAvailable ? Color.teal : Color.gray.opacity(0.5))
                 .frame(width: 6, height: 6)
             if coordinator.isNotebookLMQuerying {
                 ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
@@ -135,16 +192,24 @@ struct MeetingTeleprompterView: View {
         .background(color.opacity(0.1)).cornerRadius(4)
     }
 
-    // MARK: Transcript Panel
+    // MARK: Transcript Panel (★ 雙串流分色)
 
     private var transcriptPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("LIVE TRANSCRIPT")
-                .font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
-                .padding(.horizontal, 12).padding(.top, 8)
+            HStack {
+                Text("LIVE TRANSCRIPT").font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
+                Spacer()
+                if coordinator.hasDualStream {
+                    Text("對方").font(.system(size: 9)).foregroundColor(.white.opacity(0.5))
+                    Text("/").font(.system(size: 9)).foregroundColor(.gray)
+                    Text("我方").font(.system(size: 9)).foregroundColor(.cyan.opacity(0.5))
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 8)
+
             ScrollView {
                 Text(coordinator.fullTranscript.isEmpty
-                    ? "Waiting for meeting audio..." : coordinator.fullTranscript)
+                    ? "等待會議音訊..." : coordinator.fullTranscript)
                     .font(.system(size: 13)).foregroundColor(.white.opacity(0.8))
                     .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -164,10 +229,18 @@ struct MeetingTeleprompterView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(coordinator.cards) { card in AICardView(card: card) }
+                if coordinator.cards.isEmpty && !isSessionActive {
+                    VStack(spacing: 12) {
+                        Image(systemName: "sparkles").font(.system(size: 32)).foregroundColor(.purple.opacity(0.3))
+                        Text("點擊「準備會議」開始")
+                            .font(.system(size: 14)).foregroundColor(.gray)
+                    }
+                    .frame(maxWidth: .infinity).padding(.top, 100)
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(coordinator.cards) { card in AICardView(card: card) }
+                    }.padding(12)
                 }
-                .padding(12)
             }
         }
         .background(Color(hex: "0D0D14"))
@@ -200,8 +273,7 @@ struct MeetingTeleprompterView: View {
                 goalsPanel
                 Divider().background(Color.gray.opacity(0.3))
                 statsPanel
-            }
-            .padding(12)
+            }.padding(12)
         }
         .background(Color(hex: "0D0D14"))
     }
@@ -213,6 +285,9 @@ struct MeetingTeleprompterView: View {
                 Spacer()
                 Text(coordinator.tpStats.summary)
                     .font(.system(size: 10, design: .monospaced)).foregroundColor(.gray)
+            }
+            if coordinator.talkingPoints.isEmpty {
+                Text("尚未載入").font(.system(size: 11)).foregroundColor(.gray.opacity(0.4))
             }
             ForEach(coordinator.talkingPoints) { tp in
                 TalkingPointRow(
@@ -227,11 +302,8 @@ struct MeetingTeleprompterView: View {
     private var goalsPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("GOALS").font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
-            ForEach(["Get PoC budget approved", "Build Kevin Liu channel", "Confirm Q1 timeline"], id: \.self) { goal in
-                HStack(spacing: 6) {
-                    Image(systemName: "circle").font(.system(size: 8)).foregroundColor(.gray)
-                    Text(goal).font(.system(size: 12)).foregroundColor(.white.opacity(0.9))
-                }
+            if coordinator.talkingPoints.isEmpty {
+                Text("尚未設定").font(.system(size: 11)).foregroundColor(.gray.opacity(0.4))
             }
         }
     }
@@ -249,25 +321,23 @@ struct MeetingTeleprompterView: View {
                 statRow("AI Cost", "$\(String(format: "%.2f", coordinator.stats.estimatedClaudeCost))")
             }
             HStack {
-                Text("NotebookLM").font(.system(size: 11)).foregroundColor(.gray)
+                Text("雙串流").font(.system(size: 11)).foregroundColor(.gray)
                 Spacer()
                 HStack(spacing: 4) {
-                    Circle()
-                        .fill(coordinator.isNotebookLMAvailable ? Color.teal : Color.red.opacity(0.6))
+                    Circle().fill(coordinator.hasDualStream ? Color.green : Color.gray.opacity(0.4))
                         .frame(width: 6, height: 6)
-                    Text(coordinator.isNotebookLMAvailable ? "Connected" : "Offline")
+                    Text(coordinator.hasDualStream ? "Active" : "Single")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(coordinator.isNotebookLMAvailable ? .teal : .red.opacity(0.6))
+                        .foregroundColor(coordinator.hasDualStream ? .green : .gray)
                 }
             }
             HStack {
                 Text("API Key").font(.system(size: 11)).foregroundColor(.gray)
                 Spacer()
                 HStack(spacing: 4) {
-                    Circle()
-                        .fill(KeychainManager.hasClaudeAPIKey ? Color.green : Color.red.opacity(0.6))
+                    Circle().fill(KeychainManager.hasClaudeAPIKey ? Color.green : Color.red.opacity(0.6))
                         .frame(width: 6, height: 6)
-                    Text(KeychainManager.hasClaudeAPIKey ? "Configured" : "Missing")
+                    Text(KeychainManager.hasClaudeAPIKey ? "OK" : "Missing")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(KeychainManager.hasClaudeAPIKey ? .green : .red.opacity(0.6))
                 }
@@ -301,19 +371,6 @@ struct MeetingTeleprompterView: View {
         }
         .padding(12).background(Color(hex: "111118"))
     }
-
-    // MARK: Actions
-
-    private func toggleSession() async {
-        if isSessionActive { await coordinator.stopMeeting() }
-        else { await coordinator.startMeeting() }
-        isSessionActive.toggle()
-    }
-
-    private func loadDemoData() async {
-        await coordinator.loadKnowledgeBase(DemoDataProvider.umcQAItems)
-        await coordinator.loadTalkingPoints(DemoDataProvider.umcTalkingPoints, meetingDurationMinutes: 60)
-    }
 }
 
 
@@ -344,12 +401,10 @@ struct TalkingPointRow: View {
             if talkingPoint.status == .pending || talkingPoint.status == .inProgress {
                 HStack(spacing: 4) {
                     Button(action: onComplete) {
-                        Image(systemName: "checkmark").font(.system(size: 9))
-                            .foregroundColor(.green.opacity(0.7))
+                        Image(systemName: "checkmark").font(.system(size: 9)).foregroundColor(.green.opacity(0.7))
                     }.buttonStyle(.plain)
                     Button(action: onSkip) {
-                        Image(systemName: "forward").font(.system(size: 9))
-                            .foregroundColor(.gray.opacity(0.5))
+                        Image(systemName: "forward").font(.system(size: 9)).foregroundColor(.gray.opacity(0.5))
                     }.buttonStyle(.plain)
                 }
             }
@@ -357,10 +412,7 @@ struct TalkingPointRow: View {
         .padding(.vertical, 4).padding(.horizontal, 6)
         .background(rowBackground).cornerRadius(6)
     }
-
-    private var isCompleted: Bool {
-        talkingPoint.status == .completed || talkingPoint.status == .skipped
-    }
+    private var isCompleted: Bool { talkingPoint.status == .completed || talkingPoint.status == .skipped }
     private var statusIcon: some View {
         Group {
             switch talkingPoint.status {
