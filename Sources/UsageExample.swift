@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.3 — SwiftUI Main View
-// Updated: Meeting Prep + Dual-stream + Keychain + Transcript Export
+// Updated: Meeting Prep + Dual-stream + Keychain + Transcript Export + Language
 
 import SwiftUI
 import AppKit
@@ -14,8 +14,9 @@ struct MeetingTeleprompterView: View {
     @State private var showPrepView = true
     @State private var manualQuestion = ""
     @State private var meetingTitle = "Meeting"
+    @State private var activeSpeechLanguage = "zh-TW"  // ★ 顯示用
 
-    // ★ 會後儲存
+    // 會後儲存
     @State private var showPostMeetingSave = false
     @State private var savedTranscript = ""
     @State private var savedCards: [AICard] = []
@@ -50,7 +51,6 @@ struct MeetingTeleprompterView: View {
             .background(Color(hex: "0A0A0F"))
             .preferredColorScheme(.dark)
 
-            // 會前準備
             if showPrepView {
                 Color.black.opacity(0.7).ignoresSafeArea()
                 MeetingPrepView { result in
@@ -61,7 +61,6 @@ struct MeetingTeleprompterView: View {
                 .cornerRadius(16).shadow(radius: 20)
             }
 
-            // ★ 會後儲存對話框
             if showPostMeetingSave {
                 Color.black.opacity(0.7).ignoresSafeArea()
                 postMeetingSaveView
@@ -72,35 +71,45 @@ struct MeetingTeleprompterView: View {
         }
     }
 
-    // MARK: 載入會前資料 + 啟動會議
+    // MARK: ★ 載入會前資料 + 用選擇的語言啟動會議
 
     private func loadPrepAndStart(_ result: MeetingPrepResult) async {
         meetingTitle = result.context.goals.first ?? "Meeting"
+        activeSpeechLanguage = result.speechLocale.identifier  // ★ 記住語言
+
         await coordinator.updateContext(result.context)
         await coordinator.loadKnowledgeBase(result.qaItems)
         await coordinator.loadTalkingPoints(result.talkingPoints, meetingDurationMinutes: result.durationMinutes)
-        await coordinator.startMeeting()
+
+        // ★ 用選擇的語言建立 AudioCaptureConfiguration
+        let config = AudioCaptureConfiguration(
+            sampleRate: 48000.0,
+            channelCount: 1,
+            speechLocale: result.speechLocale,  // ★ 從會前準備傳入
+            enablePartialResults: true,
+            bufferSize: 1024,
+            autoDetectMeetingApp: true
+        )
+        await coordinator.startMeeting(config: config)
         isSessionActive = true
         showPrepView = false
         meetingStartTime = Date()
     }
 
-    // MARK: ★ 停止會議 + 彈出儲存
+    // MARK: 停止會議
 
     private func stopMeeting() async {
-        // 先截取資料再停止
         savedTranscript = coordinator.fullTranscript
         savedCards = coordinator.cards
         savedTalkingPoints = coordinator.talkingPoints
         savedTPStats = coordinator.tpStats
-
         await coordinator.stopMeeting()
         savedStats = coordinator.stats
         isSessionActive = false
         showPostMeetingSave = true
     }
 
-    // MARK: ★ 會後儲存 UI
+    // MARK: 會後儲存 UI
 
     private var postMeetingSaveView: some View {
         VStack(spacing: 16) {
@@ -109,8 +118,6 @@ struct MeetingTeleprompterView: View {
             Text("會議結束").font(.system(size: 18, weight: .bold)).foregroundColor(.white)
             Text(savedStats.summary)
                 .font(.system(size: 12, design: .monospaced)).foregroundColor(.gray)
-
-            // TP 完成摘要
             HStack(spacing: 16) {
                 VStack {
                     Text("TP 完成").font(.system(size: 10)).foregroundColor(.gray)
@@ -131,16 +138,11 @@ struct MeetingTeleprompterView: View {
                         .foregroundColor(.purple)
                 }
             }
-
             HStack(spacing: 12) {
-                Button("跳過") {
-                    showPostMeetingSave = false
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 13)).foregroundColor(.gray)
+                Button("跳過") { showPostMeetingSave = false }
+                .buttonStyle(.plain).font(.system(size: 13)).foregroundColor(.gray)
                 .padding(.horizontal, 20).padding(.vertical, 8)
                 .background(Color.gray.opacity(0.2)).cornerRadius(8)
-
                 Button(action: saveTranscriptToFile) {
                     HStack(spacing: 6) {
                         Image(systemName: "square.and.arrow.down")
@@ -149,14 +151,12 @@ struct MeetingTeleprompterView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .padding(.horizontal, 20).padding(.vertical, 8)
                     .background(Color.green.opacity(0.8)).cornerRadius(8)
-                }
-                .buttonStyle(.plain)
+                }.buttonStyle(.plain)
             }
-        }
-        .padding(24)
+        }.padding(24)
     }
 
-    // MARK: ★ 儲存逐字稿為 TXT
+    // MARK: 儲存逐字稿
 
     private func saveTranscriptToFile() {
         let content = buildTranscriptTXT()
@@ -167,14 +167,11 @@ struct MeetingTeleprompterView: View {
         panel.nameFieldStringValue = "\(dateStr)_\(safeName)_transcript.txt"
         panel.allowedContentTypes = [.plainText]
         panel.canCreateDirectories = true
-
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 try content.write(to: url, atomically: true, encoding: .utf8)
                 showPostMeetingSave = false
-            } catch {
-                print("❌ 儲存失敗: \(error)")
-            }
+            } catch { print("❌ 儲存失敗: \(error)") }
         }
     }
 
@@ -182,7 +179,6 @@ struct MeetingTeleprompterView: View {
         var lines: [String] = []
         let startStr = meetingStartTime.map { formatDateTime($0) } ?? "N/A"
         let endStr = formatDateTime(Date())
-
         lines.append("════════════════════════════════════════════════════")
         lines.append("  MeetingCopilot 會議記錄")
         lines.append("════════════════════════════════════════════════════")
@@ -190,12 +186,9 @@ struct MeetingTeleprompterView: View {
         lines.append("會議名稱: \(meetingTitle)")
         lines.append("開始時間: \(startStr)")
         lines.append("結束時間: \(endStr)")
-        if let d = savedStats.sessionDuration {
-            lines.append("會議時長: \(Int(d / 60)) 分鐘")
-        }
+        if let d = savedStats.sessionDuration { lines.append("會議時長: \(Int(d / 60)) 分鐘") }
+        lines.append("語音辨識: \(activeSpeechLanguage)")  // ★
         lines.append("")
-
-        // 統計
         lines.append("── 統計 ──────────────────────────────────────────")
         lines.append("本地匹配: \(savedStats.localMatches)")
         lines.append("NLM 查詢: \(savedStats.notebookLMQueries)")
@@ -204,54 +197,38 @@ struct MeetingTeleprompterView: View {
         lines.append("平均延遲: \(String(format: "%.0f", savedStats.averageClaudeLatencyMs))ms")
         lines.append("AI 成本: $\(String(format: "%.2f", savedStats.estimatedClaudeCost))")
         lines.append("")
-
-        // TP 狀態
         lines.append("── Talking Points (\(savedTPStats.completed)/\(savedTPStats.total)) ──")
         for tp in savedTalkingPoints {
             let icon: String
             switch tp.status {
-            case .completed: icon = "✅"
-            case .skipped: icon = "⏭️"
-            case .inProgress: icon = "🔄"
-            case .pending: icon = "⬜"
+            case .completed: icon = "✅"; case .skipped: icon = "⏭️"
+            case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
             }
             lines.append("  \(icon) [\(tp.priority.rawValue)] \(tp.content)")
         }
         lines.append("")
-
-        // 逐字稿
         lines.append("── 逐字稿 ────────────────────────────────────────")
-        if savedTranscript.isEmpty {
-            lines.append("（無逐字稿）")
-        } else {
-            lines.append(savedTranscript)
-        }
+        lines.append(savedTranscript.isEmpty ? "（無逐字稿）" : savedTranscript)
         lines.append("")
-
-        // AI 卡片
         if !savedCards.isEmpty {
             lines.append("── AI 卡片 (\(savedCards.count) 張) ───────────────────────")
             for (i, card) in savedCards.enumerated() {
-                let typeEmoji: String
+                let e: String
                 switch card.type {
-                case .qaMatch: typeEmoji = "🔵"
-                case .aiGenerated: typeEmoji = "🟣"
-                case .strategy: typeEmoji = "🟠"
-                case .warning: typeEmoji = "⚠️"
+                case .qaMatch: e = "🔵"; case .aiGenerated: e = "🟣"
+                case .strategy: e = "🟠"; case .warning: e = "⚠️"
                 }
                 lines.append("")
-                lines.append("\(typeEmoji) #\(i + 1) \(card.title)")
+                lines.append("\(e) #\(i + 1) \(card.title)")
                 lines.append("   \(String(format: "%.0f", card.latencyMs))ms | \(String(format: "%.0f", card.confidence * 100))%")
                 lines.append("   \(card.content)")
             }
         }
-
         lines.append("")
         lines.append("════════════════════════════════════════════════════")
         lines.append("  Generated by MeetingCopilot v4.3")
         lines.append("  © MacroVision Systems")
         lines.append("════════════════════════════════════════════════════")
-
         return lines.joined(separator: "\n")
     }
 
@@ -275,7 +252,6 @@ struct MeetingTeleprompterView: View {
                         .font(.system(size: 11, design: .monospaced)).foregroundColor(.gray)
                 }
             }
-
             if coordinator.hasDualStream {
                 HStack(spacing: 3) {
                     Image(systemName: "person.2.wave.2").font(.system(size: 9))
@@ -285,9 +261,15 @@ struct MeetingTeleprompterView: View {
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color.green.opacity(0.1)).cornerRadius(4)
             }
-
+            // ★ 顯示語言
+            if isSessionActive {
+                Text(activeSpeechLanguage)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.1)).cornerRadius(4)
+            }
             notebookLMStatusBadge
-
             if !KeychainManager.hasClaudeAPIKey {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -295,12 +277,10 @@ struct MeetingTeleprompterView: View {
                     Text("API Key 未設定").font(.system(size: 10)).foregroundColor(.orange)
                 }
             }
-
             Spacer()
             Text(meetingTitle)
                 .font(.system(size: 13, weight: .semibold)).foregroundColor(.white).lineLimit(1)
             Spacer()
-
             HStack(spacing: 10) {
                 statBadge("🔵", "\(coordinator.stats.localMatches)", .cyan)
                 statBadge("📚", "\(coordinator.stats.notebookLMQueries)", .teal)
@@ -309,9 +289,7 @@ struct MeetingTeleprompterView: View {
                 Text("$\(String(format: "%.2f", coordinator.stats.estimatedClaudeCost))")
                     .font(.system(size: 11, design: .monospaced)).foregroundColor(.orange)
             }
-
             tpCompletionBadge
-
             if isSessionActive {
                 Button(action: { Task { await stopMeeting() } }) {
                     Text("End Meeting").font(.system(size: 12, weight: .semibold))
@@ -320,8 +298,7 @@ struct MeetingTeleprompterView: View {
                 }.buttonStyle(.plain)
             } else {
                 Button("準備會議") { showPrepView = true }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 16).padding(.vertical, 6)
                 .background(Color.purple.opacity(0.8)).cornerRadius(6)
             }
@@ -506,6 +483,12 @@ struct MeetingTeleprompterView: View {
                 }
             }
             HStack {
+                Text("語言").font(.system(size: 11)).foregroundColor(.gray)
+                Spacer()
+                Text(activeSpeechLanguage)
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(.blue)
+            }
+            HStack {
                 Text("API Key").font(.system(size: 11)).foregroundColor(.gray)
                 Spacer()
                 HStack(spacing: 4) {
@@ -554,7 +537,6 @@ struct TalkingPointRow: View {
     let talkingPoint: TalkingPoint
     let onComplete: () -> Void
     let onSkip: () -> Void
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             statusIcon.frame(width: 16)
@@ -567,8 +549,7 @@ struct TalkingPointRow: View {
                         .strikethrough(isCompleted).lineLimit(2)
                 }
                 if let data = talkingPoint.supportingData, !isCompleted {
-                    Text(data).font(.system(size: 10))
-                        .foregroundColor(.gray.opacity(0.7)).lineLimit(1)
+                    Text(data).font(.system(size: 10)).foregroundColor(.gray.opacity(0.7)).lineLimit(1)
                 }
             }
             Spacer()
@@ -605,9 +586,7 @@ struct TalkingPointRow: View {
             .background(priorityColor.opacity(0.15)).cornerRadius(2)
     }
     private var priorityColor: Color {
-        switch talkingPoint.priority {
-        case .must: return .red; case .should: return .yellow; case .nice: return .gray
-        }
+        switch talkingPoint.priority { case .must: return .red; case .should: return .yellow; case .nice: return .gray }
     }
     private var rowBackground: Color {
         switch talkingPoint.status {
@@ -626,8 +605,7 @@ struct AICardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(card.title).font(.system(size: 12, weight: .bold))
-                    .foregroundColor(titleColor).lineLimit(1)
+                Text(card.title).font(.system(size: 12, weight: .bold)).foregroundColor(titleColor).lineLimit(1)
                 Spacer()
                 HStack(spacing: 8) {
                     Text("\(String(format: "%.0f", card.latencyMs))ms")
@@ -637,24 +615,17 @@ struct AICardView: View {
                         .foregroundColor(card.confidence > 0.9 ? .green : .yellow)
                 }
             }
-            Text(card.content).font(.system(size: 13))
-                .foregroundColor(.white.opacity(0.9)).lineLimit(6)
+            Text(card.content).font(.system(size: 13)).foregroundColor(.white.opacity(0.9)).lineLimit(6)
         }
         .padding(12).background(cardBackground).cornerRadius(8)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 1))
     }
     private var titleColor: Color {
-        switch card.type {
-        case .qaMatch: return .cyan; case .aiGenerated: return .purple
-        case .strategy: return .orange; case .warning: return .yellow
-        }
+        switch card.type { case .qaMatch: return .cyan; case .aiGenerated: return .purple; case .strategy: return .orange; case .warning: return .yellow }
     }
     private var borderColor: Color { titleColor.opacity(0.3) }
     private var cardBackground: Color {
-        switch card.type {
-        case .qaMatch: return Color.cyan.opacity(0.08); case .aiGenerated: return Color.purple.opacity(0.08)
-        case .strategy: return Color.orange.opacity(0.08); case .warning: return Color.yellow.opacity(0.08)
-        }
+        switch card.type { case .qaMatch: return Color.cyan.opacity(0.08); case .aiGenerated: return Color.purple.opacity(0.08); case .strategy: return Color.orange.opacity(0.08); case .warning: return Color.yellow.opacity(0.08) }
     }
 }
 
