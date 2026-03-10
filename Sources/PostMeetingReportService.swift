@@ -1,260 +1,280 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // PostMeetingReportService.swift
-// MeetingCopilot v4.3 — 會後報告生成服務
+// MeetingCopilot v4.3 — 會後報告產生器
 // ═══════════════════════════════════════════════════════════════════════════
 //
 //  功能：
-//  1. Claude AI 產生會議摘要（3-5 個要點）
-//  2. Action Items 自動擷取（從逐字稿偵測）
-//  3. Markdown 格式報告生成
-//  4. Notion page 建立
+//  1. Claude 自動產生會議摘要（3-5 個要點）
+//  2. Action Items 自動擷取（從逐字稿偵測「我們會...」「下一步...」）
+//  3. Markdown 報告產生
+//  4. 匯出到 Notion page
 //
 //  Platform: macOS 14.0+
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
 
-// MARK: - Report Data
+// MARK: - Action Item
+
+struct ActionItem: Identifiable, Sendable {
+    let id = UUID()
+    let content: String
+    let assignee: String?       // 「我」/「對方」/ nil
+    let dueHint: String?        // 「本週」「下週一」/ nil
+    let source: Source
+
+    enum Source: String, Sendable {
+        case transcript = "transcript"   // 從逐字稿偵測
+        case claude = "claude"           // Claude 擷取
+    }
+}
+
+// MARK: - Meeting Report
 
 struct MeetingReport: Sendable {
     let title: String
     let startTime: Date?
     let endTime: Date
-    let duration: String
+    let duration: TimeInterval?
     let language: String
-    let summary: [String]                  // AI 產生的 3-5 個要點
-    let actionItems: [ActionItem]          // 自動擷取的行動項目
-    let transcript: String
+    let summary: [String]               // 3-5 個要點
+    let actionItems: [ActionItem]
     let talkingPoints: [TalkingPoint]
     let tpStats: TPStats
-    let cards: [AICard]
     let stats: SessionStats
+    let transcript: String
+    let cards: [AICard]
 }
 
-struct ActionItem: Identifiable, Sendable {
-    let id = UUID()
-    let content: String
-    let owner: String?                     // 負責人（如果偵測到）
-    let deadline: String?                  // 截止日（如果偵測到）
-    let source: ActionItemSource
+// MARK: - Report Format
 
-    enum ActionItemSource: String, Sendable {
-        case transcript = "逐字稿"        // 從逐字稿偵測
-        case aiSuggested = "AI 建議"     // Claude 建議
-    }
+enum ReportFormat: String, CaseIterable {
+    case txt = "TXT"
+    case markdown = "Markdown"
 }
 
 // MARK: - Post Meeting Report Service
 
 actor PostMeetingReportService {
 
-    // ═════════════════════════════════════════════════
-    // MARK: 1. Claude AI 會議摘要
-    // ═════════════════════════════════════════════════
+    private let claudeAPIKey: String
 
-    func generateSummary(transcript: String, title: String, tpStats: TPStats) async -> [String] {
-        guard let apiKey = KeychainManager.claudeAPIKey,
-              !transcript.isEmpty else { return [] }
-
-        let truncated = String(transcript.suffix(4000))  // 避免超過 token 限制
-
-        let prompt = """
-        你是會議摘要助手。請基於以下會議逐字稿，產生 3-5 個重要摘要要點。
-
-        要求：
-        - 每個要點一行，簡潔有力，不超過 30 字
-        - 用「•」開頭
-        - 包含具體數字或決策（如果有）
-        - 使用與逐字稿相同的語言（中文或英文）
-        - 只輸出要點，不要其他文字
-
-        會議名稱：\(title)
-        TP 完成: \(tpStats.completed)/\(tpStats.total)
-
-        逐字稿：
-        \(truncated)
-        """
-
-        do {
-            let url = URL(string: "https://api.anthropic.com/v1/messages")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 15
-
-            let body: [String: Any] = [
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 500,
-                "messages": [["role": "user", "content": prompt]]
-            ]
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let content = json["content"] as? [[String: Any]],
-                  let text = content.first?["text"] as? String else { return [] }
-
-            // 解析要點（每行一個）
-            return text.split(separator: "\n")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-                .map { $0.hasPrefix("•") ? String($0.dropFirst().trimmingCharacters(in: .whitespaces)) : String($0) }
-        } catch {
-            print("⚠️ Summary generation failed: \(error)")
-            return []
-        }
+    init(claudeAPIKey: String) {
+        self.claudeAPIKey = claudeAPIKey
     }
 
     // ═════════════════════════════════════════════════
-    // MARK: 2. Action Items 自動擷取
+    // MARK: 1. Claude 會議摘要
     // ═════════════════════════════════════════════════
 
-    func extractActionItems(from transcript: String) -> [ActionItem] {
-        let patterns: [(pattern: String, isRegex: Bool)] = [
-            // 中文模式
-            ("我們會", false), ("我來", false), ("下一步", false),
-            ("待辦", false), ("跟進", false), ("確認一下", false),
-            ("會後整理", false), ("會後發", false), ("會後傳", false),
-            ("請你", false), ("麻煩你", false), ("幫我", false),
-            ("需要準備", false), ("安排一下", false),
-            ("下週", false), ("明天", false), ("這週內", false),
-            // 英文模式
-            ("we will", false), ("we'll", false), ("I will", false), ("I'll", false),
-            ("action item", false), ("follow up", false), ("next step", false),
-            ("to-do", false), ("deadline", false), ("by friday", false),
-            ("by next week", false), ("send me", false), ("please prepare", false),
-            ("let's schedule", false), ("need to", false),
+    func generateSummary(transcript: String, cards: [AICard], tpStats: TPStats) async -> [String] {
+        let trimmedTranscript = String(transcript.suffix(6000))
+        let cardSummary = cards.prefix(10).map { "[\($0.type.rawValue)] \($0.title): \($0.content.prefix(80))" }.joined(separator: "\n")
+
+        let prompt = """
+        你是會議摘要助手。根據以下會議逐字稿和 AI 卡片，產生 3-5 個會議要點摘要。
+
+        規則：
+        - 每個要點 1 行，不超過 40 字
+        - 包含具體數字/決策/共識
+        - 用繁體中文
+        - 只輸出要點，每行一個，不要編號、不要標題
+        - Talking Points 完成率: \(tpStats.completed)/\(tpStats.total)，MUST: \(tpStats.mustCompleted)/\(tpStats.mustTotal)
+
+        AI 卡片摘要：
+        \(cardSummary)
+
+        逐字稿：
+        \(trimmedTranscript)
+        """
+
+        let result = await callClaude(prompt: prompt, maxTokens: 500)
+        let lines = result
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return lines.isEmpty ? ["會議已結束，尚無足夠內容產生摘要"] : Array(lines.prefix(5))
+    }
+
+    // ═════════════════════════════════════════════════
+    // MARK: 2. Action Items 擷取
+    // ═════════════════════════════════════════════════
+
+    func extractActionItems(transcript: String) async -> [ActionItem] {
+        // ① 本地快速偵測（零延遲）
+        var localItems = extractActionItemsLocally(transcript)
+
+        // ② Claude 深度擷取
+        let claudeItems = await extractActionItemsWithClaude(transcript)
+
+        // 合併去重
+        for ci in claudeItems {
+            let isDuplicate = localItems.contains { existing in
+                existing.content.localizedCaseInsensitiveContains(String(ci.content.prefix(15)))
+            }
+            if !isDuplicate { localItems.append(ci) }
+        }
+
+        return localItems
+    }
+
+    /// 本地 regex 快速偵測
+    private func extractActionItemsLocally(_ transcript: String) -> [ActionItem] {
+        let patterns: [(pattern: String, assignee: String?)] = [
+            // 中文
+            ("我們會.{5,40}", "我方"),
+            ("下一步.{5,40}", nil),
+            ("我來.{5,40}", "我方"),
+            ("麻煩你.{5,40}", "對方"),
+            ("請你.{3,40}", "對方"),
+            ("會後.{5,40}", nil),
+            ("需要準備.{5,40}", nil),
+            ("我等等.{5,40}", "我方"),
+            ("我傳給你.{3,30}", "我方"),
+            // English
+            ("I will .{5,40}", "我方"),
+            ("I'll .{5,40}", "我方"),
+            ("we will .{5,40}", nil),
+            ("we'll .{5,40}", nil),
+            ("next step.{3,40}", nil),
+            ("action item.{3,40}", nil),
+            ("follow up.{3,40}", nil),
+            ("let me .{5,40}", "我方"),
+            ("could you .{5,40}", "對方"),
+            ("please send .{5,40}", "對方"),
         ]
 
-        let lines = transcript.split(separator: "\n").map(String.init)
         var items: [ActionItem] = []
-        var seen = Set<String>()  // 避免重複
+        let text = transcript.lowercased()
 
-        for line in lines {
-            let lower = line.lowercased()
-            for (pattern, _) in patterns {
-                if lower.contains(pattern.lowercased()) {
-                    // 擷取包含關鍵字的句子
-                    let cleaned = cleanActionItemText(line)
-                    let key = String(cleaned.prefix(30)).lowercased()
-                    guard !cleaned.isEmpty, cleaned.count > 5, !seen.contains(key) else { continue }
-                    seen.insert(key)
-
-                    let owner = extractOwner(from: cleaned)
-                    let deadline = extractDeadline(from: cleaned)
-
-                    items.append(ActionItem(
-                        content: cleaned,
-                        owner: owner,
-                        deadline: deadline,
-                        source: .transcript
-                    ))
-                    break  // 一行只擷取一次
+        for (pattern, assignee) in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+                for match in matches.prefix(3) {
+                    if let range = Range(match.range, in: text) {
+                        let content = String(text[range])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .prefix(60)
+                        items.append(ActionItem(
+                            content: String(content), assignee: assignee,
+                            dueHint: nil, source: .transcript
+                        ))
+                    }
                 }
             }
         }
 
-        return Array(items.prefix(10))  // 最多 10 個
+        return Array(items.prefix(10))  // 最多 10 條
     }
 
-    private func cleanActionItemText(_ text: String) -> String {
-        var cleaned = text
-        // 移除說話者標籤
-        if cleaned.hasPrefix("[對方] ") { cleaned = String(cleaned.dropFirst(5)) }
-        if cleaned.hasPrefix("[我方] ") { cleaned = String(cleaned.dropFirst(5)) }
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    /// Claude 深度擷取
+    private func extractActionItemsWithClaude(_ transcript: String) async -> [ActionItem] {
+        let trimmed = String(transcript.suffix(4000))
+        guard trimmed.count > 50 else { return [] }
 
-    private func extractOwner(from text: String) -> String? {
-        let ownerPatterns = ["請你", "麻煩你", "我來", "我們", "I will", "I'll", "we will", "we'll"]
-        let lower = text.lowercased()
-        for p in ownerPatterns {
-            if lower.contains(p.lowercased()) {
-                if p.contains("你") { return "對方" }
-                if p.contains("我") { return "我方" }
-                if p.lowercased().contains("i ") { return "我方" }
-                if p.lowercased().contains("we") { return "我們" }
+        let prompt = """
+        從以下會議逐字稿擷取 Action Items。
+
+        規則：
+        - 每行一個 Action Item，格式：[負責人] 內容 (時限)
+        - 負責人只寫「我方」或「對方」或「待定」
+        - 時限只寫「本週」「下週」「無明確時限」
+        - 最多 5 條
+        - 用繁體中文
+        - 只輸出 Action Items，不要其他文字
+
+        逐字稿：
+        \(trimmed)
+        """
+
+        let result = await callClaude(prompt: prompt, maxTokens: 400)
+        return result
+            .split(separator: "\n")
+            .compactMap { line -> ActionItem? in
+                let s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !s.isEmpty else { return nil }
+
+                // 解析 [負責人] 內容 (時限)
+                var assignee: String? = nil
+                var dueHint: String? = nil
+                var content = s
+
+                if let assigneeMatch = s.range(of: "\\[(.+?)\\]", options: .regularExpression) {
+                    let tag = String(s[assigneeMatch]).replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
+                    if tag.contains("我方") { assignee = "我方" }
+                    else if tag.contains("對方") { assignee = "對方" }
+                    content = s.replacingCharacters(in: assigneeMatch, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if let dueMatch = content.range(of: "\\((.+?)\\)", options: .regularExpression) {
+                    dueHint = String(content[dueMatch]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
+                    content = content.replacingCharacters(in: dueMatch, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                // 清除 - 開頭
+                if content.hasPrefix("- ") { content = String(content.dropFirst(2)) }
+
+                return ActionItem(content: content, assignee: assignee, dueHint: dueHint, source: .claude)
             }
-        }
-        return nil
-    }
-
-    private func extractDeadline(from text: String) -> String? {
-        let deadlinePatterns: [(String, String)] = [
-            ("明天", "明天"), ("下週", "下週"), ("這週內", "這週內"),
-            ("週五前", "週五前"), ("月底前", "月底前"),
-            ("tomorrow", "tomorrow"), ("next week", "next week"),
-            ("by friday", "by Friday"), ("end of month", "end of month"),
-            ("asap", "ASAP"),
-        ]
-        let lower = text.lowercased()
-        for (pattern, display) in deadlinePatterns {
-            if lower.contains(pattern) { return display }
-        }
-        return nil
     }
 
     // ═════════════════════════════════════════════════
-    // MARK: 3. Markdown 報告生成
+    // MARK: 3. Markdown 報告產生
     // ═════════════════════════════════════════════════
 
-    func buildMarkdown(report: MeetingReport) -> String {
-        let startStr = report.startTime.map { formatDateTime($0) } ?? "N/A"
-        let endStr = formatDateTime(report.endTime)
+    func generateMarkdown(report: MeetingReport) -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm"
+        let startStr = report.startTime.map { df.string(from: $0) } ?? "N/A"
+        let endStr = df.string(from: report.endTime)
+        let durationStr = report.duration.map { "\(Int($0 / 60)) 分鐘" } ?? "N/A"
 
         var md = """
-        # \(report.title) — 會議記錄
+        # 📝 \(report.title)
 
         | 項目 | 內容 |
         |------|------|
-        | 開始時間 | \(startStr) |
-        | 結束時間 | \(endStr) |
-        | 會議時長 | \(report.duration) |
-        | 語音辨識 | \(report.language) |
+        | 開始 | \(startStr) |
+        | 結束 | \(endStr) |
+        | 時長 | \(durationStr) |
+        | 語言 | \(report.language) |
+
+        ## 🎯 會議摘要
+
 
         """
 
-        // AI 摘要
-        if !report.summary.isEmpty {
-            md += "\n## 📝 AI 會議摘要\n\n"
-            for point in report.summary {
-                md += "- \(point)\n"
-            }
+        for (i, point) in report.summary.enumerated() {
+            md += "\(i + 1). \(point)\n"
         }
 
         // Action Items
         if !report.actionItems.isEmpty {
             md += "\n## ✅ Action Items\n\n"
-            md += "| # | 內容 | 負責人 | 截止日 | 來源 |\n"
-            md += "|---|------|--------|--------|------|\n"
-            for (i, item) in report.actionItems.enumerated() {
-                md += "| \(i + 1) | \(item.content.prefix(50)) | \(item.owner ?? "-") | \(item.deadline ?? "-") | \(item.source.rawValue) |\n"
+            for item in report.actionItems {
+                let assignee = item.assignee ?? "待定"
+                let due = item.dueHint.map { " | → \($0)" } ?? ""
+                let src = item.source == .claude ? "🤖" : "📝"
+                md += "- [ ] **[\(assignee)]** \(item.content)\(due) \(src)\n"
             }
         }
 
-        // TP 狀態
+        // Talking Points
         md += "\n## 📋 Talking Points (\(report.tpStats.completed)/\(report.tpStats.total))\n\n"
         for tp in report.talkingPoints {
             let icon: String
             switch tp.status {
-            case .completed: icon = "✅"
-            case .skipped: icon = "⏭️"
-            case .inProgress: icon = "🔄"
-            case .pending: icon = "⬜"
+            case .completed: icon = "✅"; case .skipped: icon = "⏭️"
+            case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
             }
-            md += "- \(icon) **[\(tp.priority.rawValue)]** \(tp.content)"
+            md += "- \(icon) **[\(tp.priority.rawValue)]** \(tp.content)\n"
             if let speech = tp.detectedSpeech {
-                md += " _(偵測: \(speech.prefix(30)))_"
+                md += "  - _偵測: \(speech)_\n"
             }
-            md += "\n"
         }
 
         // 統計
         md += """
 
-        ## 📊 統計
+        ## 📊 會議統計
 
         | 指標 | 值 |
         |------|-----|
@@ -272,19 +292,28 @@ actor PostMeetingReportService {
         if report.transcript.isEmpty {
             md += "_（無逐字稿）_\n"
         } else {
-            md += "```\n\(report.transcript)\n```\n"
+            // 對方/我方 分色標記
+            let lines = report.transcript.split(separator: "\n")
+            for line in lines {
+                let s = String(line)
+                if s.hasPrefix("[對方]") {
+                    md += "> \(s)\n\n"
+                } else if s.hasPrefix("[我方]") {
+                    md += "**\(s)**\n\n"
+                } else {
+                    md += "\(s)\n\n"
+                }
+            }
         }
 
         // AI 卡片
         if !report.cards.isEmpty {
-            md += "\n## 🤖 AI 卡片 (\(report.cards.count) 張)\n\n"
+            md += "## 🧠 AI 卡片 (\(report.cards.count))\n\n"
             for (i, card) in report.cards.enumerated() {
                 let emoji: String
                 switch card.type {
-                case .qaMatch: emoji = "🔵"
-                case .aiGenerated: emoji = "🟣"
-                case .strategy: emoji = "🟠"
-                case .warning: emoji = "⚠️"
+                case .qaMatch: emoji = "🔵"; case .aiGenerated: emoji = "🟣"
+                case .strategy: emoji = "🟠"; case .warning: emoji = "⚠️"
                 }
                 md += "### \(emoji) #\(i + 1) \(card.title)\n\n"
                 md += "> \(String(format: "%.0f", card.latencyMs))ms | \(String(format: "%.0f", card.confidence * 100))%\n\n"
@@ -292,231 +321,220 @@ actor PostMeetingReportService {
             }
         }
 
-        md += "\n---\n_Generated by MeetingCopilot v4.3 — Reality Matrix Inc._\n"
+        md += "---\n\n_Generated by MeetingCopilot v4.3 © Reality Matrix Inc._\n"
         return md
     }
 
     // ═════════════════════════════════════════════════
-    // MARK: 4. TXT 報告生成（已有功能強化版）
+    // MARK: 4. 匯出到 Notion Page
     // ═════════════════════════════════════════════════
 
-    func buildTXT(report: MeetingReport) -> String {
-        let startStr = report.startTime.map { formatDateTime($0) } ?? "N/A"
-        let endStr = formatDateTime(report.endTime)
-
-        var lines: [String] = []
-        lines.append("══════════════════════════════════════════════════")
-        lines.append("  MeetingCopilot 會議記錄")
-        lines.append("══════════════════════════════════════════════════")
-        lines.append("")
-        lines.append("會議名稱: \(report.title)")
-        lines.append("開始時間: \(startStr)")
-        lines.append("結束時間: \(endStr)")
-        lines.append("會議時長: \(report.duration)")
-        lines.append("語音辨識: \(report.language)")
-
-        // AI 摘要
-        if !report.summary.isEmpty {
-            lines.append("")
-            lines.append("── AI 會議摘要 ────────────────────────────────────")
-            for (i, point) in report.summary.enumerated() {
-                lines.append("  \(i + 1). \(point)")
-            }
-        }
-
-        // Action Items
-        if !report.actionItems.isEmpty {
-            lines.append("")
-            lines.append("── Action Items (行動項目) ──────────────────────────")
-            for (i, item) in report.actionItems.enumerated() {
-                var line = "  \(i + 1). \(item.content)"
-                if let owner = item.owner { line += " [負責: \(owner)]" }
-                if let deadline = item.deadline { line += " [截止: \(deadline)]" }
-                lines.append(line)
-            }
-        }
-
-        // 統計 + TP + 逐字稿 + 卡片（同原有格式）
-        lines.append("")
-        lines.append("── 統計 ────────────────────────────────────────────")
-        lines.append("本地匹配: \(report.stats.localMatches)")
-        lines.append("RAG 查詢: \(report.stats.notebookLMQueries)")
-        lines.append("Claude 查詢: \(report.stats.claudeQueries)")
-        lines.append("策略分析: \(report.stats.strategyAnalyses)")
-        lines.append("AI 成本: $\(String(format: "%.2f", report.stats.estimatedClaudeCost))")
-        lines.append("")
-
-        lines.append("── Talking Points (\(report.tpStats.completed)/\(report.tpStats.total)) ──")
-        for tp in report.talkingPoints {
-            let icon: String
-            switch tp.status {
-            case .completed: icon = "✅"; case .skipped: icon = "⏭️"
-            case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
-            }
-            lines.append("  \(icon) [\(tp.priority.rawValue)] \(tp.content)")
-        }
-        lines.append("")
-
-        lines.append("── 逐字稿 ──────────────────────────────────────────")
-        lines.append(report.transcript.isEmpty ? "（無逐字稿）" : report.transcript)
-        lines.append("")
-
-        if !report.cards.isEmpty {
-            lines.append("── AI 卡片 (\(report.cards.count) 張) ───────────────────────")
-            for (i, card) in report.cards.enumerated() {
-                let e: String
-                switch card.type {
-                case .qaMatch: e = "🔵"; case .aiGenerated: e = "🟣"
-                case .strategy: e = "🟠"; case .warning: e = "⚠️"
-                }
-                lines.append("\(e) #\(i + 1) \(card.title)")
-                lines.append("   \(card.content)")
-                lines.append("")
-            }
-        }
-
-        lines.append("══════════════════════════════════════════════════")
-        lines.append("  Generated by MeetingCopilot v4.3")
-        lines.append("  \u00a9 Reality Matrix Inc.")
-        lines.append("══════════════════════════════════════════════════")
-        return lines.joined(separator: "\n")
-    }
-
-    // ═════════════════════════════════════════════════
-    // MARK: 5. 匯出到 Notion Page
-    // ═════════════════════════════════════════════════
-
-    func exportToNotion(report: MeetingReport) async -> (success: Bool, url: String?) {
-        guard let apiKey = KeychainManager.notionAPIKey else {
-            print("⚠️ Notion API Key 未設定")
+    func exportToNotion(report: MeetingReport, parentPageId: String? = nil) async -> (success: Bool, url: String?) {
+        guard let notionKey = KeychainManager.notionAPIKey else {
+            print("❌ Notion API Key 未設定")
             return (false, nil)
         }
 
-        let startStr = report.startTime.map { formatDateTime($0) } ?? "N/A"
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm"
+        let dateStr = report.startTime.map { df.string(from: $0) } ?? df.string(from: report.endTime)
+        let pageTitle = "📝 \(report.title) - \(dateStr)"
 
         // 組裝 Notion blocks
-        var children: [[String: Any]] = []
+        var blocks: [[String: Any]] = []
 
-        // 標題資訊
-        children.append(paragraphBlock("📅 \(startStr) | 時長: \(report.duration) | 語言: \(report.language)"))
-        children.append(dividerBlock())
-
-        // AI 摘要
-        if !report.summary.isEmpty {
-            children.append(heading2Block("📝 AI 會議摘要"))
-            for point in report.summary {
-                children.append(bulletBlock(point))
-            }
+        // 摘要
+        blocks.append(notionHeading2("🎯 會議摘要"))
+        for point in report.summary {
+            blocks.append(notionBullet(point))
         }
 
         // Action Items
         if !report.actionItems.isEmpty {
-            children.append(heading2Block("✅ Action Items"))
+            blocks.append(notionHeading2("✅ Action Items"))
             for item in report.actionItems {
-                var text = item.content
-                if let owner = item.owner { text += " [負責: \(owner)]" }
-                if let deadline = item.deadline { text += " [截止: \(deadline)]" }
-                children.append(todoBlock(text))
+                let assignee = item.assignee ?? "待定"
+                let due = item.dueHint.map { " → \($0)" } ?? ""
+                blocks.append(notionToDo("[\(assignee)] \(item.content)\(due)", checked: false))
             }
         }
 
-        // TP 狀態
-        children.append(heading2Block("📋 Talking Points (\(report.tpStats.completed)/\(report.tpStats.total))"))
+        // TP
+        blocks.append(notionHeading2("📋 Talking Points (\(report.tpStats.completed)/\(report.tpStats.total))"))
         for tp in report.talkingPoints {
             let icon: String
             switch tp.status {
             case .completed: icon = "✅"; case .skipped: icon = "⏭️"
             case .inProgress: icon = "🔄"; case .pending: icon = "⬜"
             }
-            children.append(bulletBlock("\(icon) [\(tp.priority.rawValue)] \(tp.content)"))
+            blocks.append(notionBullet("\(icon) [\(tp.priority.rawValue)] \(tp.content)"))
         }
 
         // 統計
-        children.append(heading2Block("📊 統計"))
-        children.append(paragraphBlock("本地匹配: \(report.stats.localMatches) | RAG: \(report.stats.notebookLMQueries) | Claude: \(report.stats.claudeQueries) | 策略: \(report.stats.strategyAnalyses) | 成本: $\(String(format: "%.2f", report.stats.estimatedClaudeCost))"))
+        blocks.append(notionHeading2("📊 統計"))
+        blocks.append(notionParagraph(
+            "本地: \(report.stats.localMatches) | RAG: \(report.stats.notebookLMQueries) | Claude: \(report.stats.claudeQueries) | 策略: \(report.stats.strategyAnalyses) | 延遲: \(String(format: "%.0f", report.stats.averageClaudeLatencyMs))ms | 成本: $\(String(format: "%.2f", report.stats.estimatedClaudeCost))"
+        ))
 
-        // 逐字稿（截取前 2000 字避免太長）
-        if !report.transcript.isEmpty {
-            children.append(heading2Block("🎤 逐字稿"))
-            children.append(codeBlock(String(report.transcript.prefix(2000))))
+        // Notion API: Create Page
+        var body: [String: Any] = [
+            "children": blocks,
+            "properties": [
+                "title": [
+                    ["type": "text", "text": ["content": pageTitle]]
+                ]
+            ]
+        ]
+
+        // 如果有 parent page，創建為子 page。否則創建為獨立 page（需要 Database 或 parent）
+        if let parentId = parentPageId, !parentId.isEmpty {
+            body["parent"] = ["page_id": parentId]
+        } else {
+            // 嘗試搜尋「MeetingCopilot」 page 作為 parent
+            let parentResult = await findNotionParentPage(apiKey: notionKey)
+            if let pid = parentResult {
+                body["parent"] = ["page_id": pid]
+            } else {
+                // 無 parent，創建為頂層 page（需要 workspace-level integration）
+                body["parent"] = ["page_id": ""]
+                print("⚠️ 找不到 MeetingCopilot parent page，嘗試建立頂層 page")
+            }
         }
 
-        // 建立 Notion page
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
+            return (false, nil)
+        }
+
+        var request = URLRequest(url: URL(string: "https://api.notion.com/v1/pages")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(notionKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
         do {
-            let url = URL(string: "https://api.notion.com/v1/pages")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 15
-
-            let body: [String: Any] = [
-                "parent": ["type": "page_id", "page_id": ""],  // Notion workspace root
-                "properties": [
-                    "title": [
-                        "title": [
-                            ["type": "text", "text": ["content": "🎤 \(report.title) — \(startStr)"]]
-                        ]
-                    ]
-                ],
-                "children": children
-            ]
-
-            // 注意：如果沒有指定 parent page_id，Notion API 需要使用 database 或已知 page_id
-            // 這裡用空 parent 會失敗，實際使用時需要設定目標 database/page
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return (false, nil)
-            }
-
-            if (200...299).contains(httpResponse.statusCode),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let pageUrl = json["url"] as? String {
-                print("✅ Notion page created: \(pageUrl)")
-                return (true, pageUrl)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let url = json["url"] as? String {
+                    print("✅ Notion page 建立成功: \(url)")
+                    return (true, url)
+                }
+                return (true, nil)
             } else {
-                // 嘗試 API v2：在 workspace root 建立
-                print("⚠️ Notion API returned \(httpResponse.statusCode). 可能需要指定 parent page_id.")
+                let errorMsg = String(data: data, encoding: .utf8) ?? "unknown error"
+                print("❌ Notion API 錯誤: \(errorMsg)")
                 return (false, nil)
             }
         } catch {
-            print("❌ Notion export failed: \(error)")
+            print("❌ Notion 網路錯誤: \(error.localizedDescription)")
             return (false, nil)
         }
     }
 
+    // 搜尋「MeetingCopilot」或「會議記錄」 page 作為 parent
+    private func findNotionParentPage(apiKey: String) async -> String? {
+        let searchBody: [String: Any] = [
+            "query": "MeetingCopilot",
+            "filter": ["property": "object", "value": "page"],
+            "page_size": 1
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: searchBody) else { return nil }
+
+        var request = URLRequest(url: URL(string: "https://api.notion.com/v1/search")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let results = json["results"] as? [[String: Any]],
+               let first = results.first,
+               let id = first["id"] as? String {
+                return id
+            }
+        } catch { }
+        return nil
+    }
+
+    // ═════════════════════════════════════════════════
+    // MARK: Claude API
+    // ═════════════════════════════════════════════════
+
+    private func callClaude(prompt: String, maxTokens: Int = 500) async -> String {
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": maxTokens,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return "" }
+
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(claudeAPIKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let content = json["content"] as? [[String: Any]],
+               let first = content.first,
+               let text = first["text"] as? String {
+                return text
+            }
+        } catch {
+            print("❌ Claude API 錯誤: \(error.localizedDescription)")
+        }
+        return ""
+    }
+
+    // ═════════════════════════════════════════════════
     // MARK: Notion Block Helpers
+    // ═════════════════════════════════════════════════
 
-    private func heading2Block(_ text: String) -> [String: Any] {
-        ["object": "block", "type": "heading_2",
-         "heading_2": ["rich_text": [["type": "text", "text": ["content": text]]]]]
-    }
-    private func paragraphBlock(_ text: String) -> [String: Any] {
-        ["object": "block", "type": "paragraph",
-         "paragraph": ["rich_text": [["type": "text", "text": ["content": text]]]]]
-    }
-    private func bulletBlock(_ text: String) -> [String: Any] {
-        ["object": "block", "type": "bulleted_list_item",
-         "bulleted_list_item": ["rich_text": [["type": "text", "text": ["content": text]]]]]
-    }
-    private func todoBlock(_ text: String) -> [String: Any] {
-        ["object": "block", "type": "to_do",
-         "to_do": ["rich_text": [["type": "text", "text": ["content": text]]], "checked": false]]
-    }
-    private func codeBlock(_ text: String) -> [String: Any] {
-        ["object": "block", "type": "code",
-         "code": ["rich_text": [["type": "text", "text": ["content": String(text.prefix(2000))]]], "language": "plain text"]]
-    }
-    private func dividerBlock() -> [String: Any] {
-        ["object": "block", "type": "divider", "divider": [String: Any]()]
+    private func notionHeading2(_ text: String) -> [String: Any] {
+        return [
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": [
+                "rich_text": [["type": "text", "text": ["content": text]]]
+            ]
+        ]
     }
 
-    // MARK: Helpers
+    private func notionBullet(_ text: String) -> [String: Any] {
+        return [
+            "object": "block",
+            "type": "bulleted_list_item",
+            "bulleted_list_item": [
+                "rich_text": [["type": "text", "text": ["content": text]]]
+            ]
+        ]
+    }
 
-    private func formatDateTime(_ date: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; return f.string(from: date)
+    private func notionToDo(_ text: String, checked: Bool) -> [String: Any] {
+        return [
+            "object": "block",
+            "type": "to_do",
+            "to_do": [
+                "rich_text": [["type": "text", "text": ["content": text]]],
+                "checked": checked
+            ]
+        ]
+    }
+
+    private func notionParagraph(_ text: String) -> [String: Any] {
+        return [
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": [
+                "rich_text": [["type": "text", "text": ["content": text]]]
+            ]
+        ]
     }
 }
