@@ -1,12 +1,22 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // ResponseOrchestrator.swift
-// MeetingCopilot v4.3 — 回應編排器（Notion + NotebookLM 雙第二層）
+// MeetingCopilot v4.3 — 回應編排器（Notion + NotebookLM 雙來源並行查詢）
 // ═══════════════════════════════════════════════════════════════════════════
 //
-//  第二層優先級：
-//  1. Notion API（如果有設定 Notion API Key）
-//  2. NotebookLM Bridge（fallback，如果有設定）
-//  3. 都沒設定 → 跳過第二層，直接進 Claude
+//  第二層 RAG：雙來源並行，不是二選一
+//
+//  NotebookLM（文件萃取）         Notion（個人規劃）
+//  → PDF/PPTX/XLSX/影片          → Goals、策略筆記
+//  → Google 語意搜尋              → Q&A 建議、客戶背景
+//  → 精確數據、原文段落            → 談判要點、歷史紀錄
+//       │                              │
+//       └──────── 並行查詢 ─────────────┘
+//                    │
+//                合併 context
+//                    │
+//              餵給 Claude
+//                    │
+//          同時有數據佐證 + 策略建議
 //
 //  Platform: macOS 14.0+
 // ═══════════════════════════════════════════════════════════════════════════
@@ -38,7 +48,7 @@ actor ResponseOrchestrator {
     private let keywordMatcher = KeywordMatcher()
     private let claudeService: ClaudeService
     private let notebookLMService: NotebookLMService
-    private let notionService: NotionRetrievalService?     // ★ Notion
+    private let notionService: NotionRetrievalService?
     private var meetingContext: MeetingContext
     private let notebookLMConfig: NotebookLMConfig
 
@@ -48,7 +58,7 @@ actor ResponseOrchestrator {
     private var eventContinuation: AsyncStream<OrchestratorEvent>.Continuation?
     private(set) var events: AsyncStream<OrchestratorEvent>!
     private(set) var isNotebookLMAvailable: Bool = false
-    private(set) var isNotionAvailable: Bool = false        // ★
+    private(set) var isNotionAvailable: Bool = false
 
     init(
         claudeAPIKey: String,
@@ -61,7 +71,6 @@ actor ResponseOrchestrator {
         self.notebookLMService = NotebookLMService(config: notebookLMConfig)
         self.meetingContext = meetingContext
 
-        // ★ Notion: 從 Keychain 讀取 API Key
         if let notionKey = KeychainManager.notionAPIKey {
             self.notionService = NotionRetrievalService(apiKey: notionKey)
         } else {
@@ -81,21 +90,99 @@ actor ResponseOrchestrator {
     func updateContext(_ context: MeetingContext) { self.meetingContext = context }
 
     func checkNotebookLMAvailability() async {
-        // ★ 優先檢查 Notion
         if let notion = notionService {
             isNotionAvailable = await notion.isAvailable
-            if isNotionAvailable {
-                print("📝 Notion RAG: Available (優先使用)")
-            }
+            if isNotionAvailable { print("📝 Notion RAG: Available (個人筆記/策略)") }
         }
-        // 仍然檢查 NotebookLM（作為 fallback）
         isNotebookLMAvailable = await notebookLMService.isAvailable
-        if isNotebookLMAvailable {
-            print("📚 NotebookLM Bridge: Available \(isNotionAvailable ? "(fallback)" : "(主要)")")
-        }
-        if !isNotionAvailable && !isNotebookLMAvailable {
+        if isNotebookLMAvailable { print("📚 NotebookLM RAG: Available (文件數據)") }
+
+        if isNotionAvailable && isNotebookLMAvailable {
+            print("✅ 第二層 RAG: 雙來源並行模式 (Notion + NotebookLM)")
+        } else if isNotionAvailable {
+            print("⚠️ 第二層 RAG: 僅 Notion（無文件數據）")
+        } else if isNotebookLMAvailable {
+            print("⚠️ 第二層 RAG: 僅 NotebookLM（無個人筆記）")
+        } else {
             print("⚠️ 第二層 RAG: 無可用服務，將直接使用 Claude")
         }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // MARK: ★ 雙來源並行查詢（核心變更）
+    // ═══════════════════════════════════════════════════════
+
+    /// 並行查詢 Notion + NotebookLM，合併結果
+    private func parallelRAGQuery(question: String) async -> (context: String, sources: [String]) {
+        var notionCtx = ""
+        var nlmCtx = ""
+        var sources: [String] = []
+
+        // ★ 使用 async let 並行查詢兩個來源
+        if isNotionAvailable && isNotebookLMAvailable {
+            // 兩者都可用 → 並行
+            async let notionTask: [NotionRetrievalResult] = {
+                guard let notion = notionService else { return [] }
+                return await notion.query(question: question, maxResults: 3)
+            }()
+            async let nlmTask: [NotebookLMResult] = notebookLMService.query(
+                .forMeeting(question: question, notebookId: notebookLMConfig.notebookId)
+            )
+
+            let notionResults = await notionTask
+            let nlmResults = await nlmTask
+
+            if !notionResults.isEmpty {
+                notionCtx = NotionRetrievalService.formatAsClaudeContext(notionResults)
+                sources.append(contentsOf: notionResults.prefix(2).map { "📝 \($0.pageTitle)" })
+                stats.notebookLMQueries += 1
+            }
+            if !nlmResults.isEmpty {
+                nlmCtx = NotebookLMService.formatAsClaudeContext(nlmResults)
+                sources.append(contentsOf: nlmResults.prefix(2).map { "📄 \($0.sourceTitle)" })
+                stats.notebookLMQueries += 1
+            }
+
+        } else if isNotionAvailable, let notion = notionService {
+            // 僅 Notion
+            let results = await notion.query(question: question, maxResults: 3)
+            if !results.isEmpty {
+                notionCtx = NotionRetrievalService.formatAsClaudeContext(results)
+                sources.append(contentsOf: results.prefix(2).map { "📝 \($0.pageTitle)" })
+                stats.notebookLMQueries += 1
+            }
+
+        } else if isNotebookLMAvailable {
+            // 僅 NotebookLM
+            let results = await notebookLMService.query(
+                .forMeeting(question: question, notebookId: notebookLMConfig.notebookId)
+            )
+            if !results.isEmpty {
+                nlmCtx = NotebookLMService.formatAsClaudeContext(results)
+                sources.append(contentsOf: results.prefix(2).map { "📄 \($0.sourceTitle)" })
+                stats.notebookLMQueries += 1
+            }
+        }
+
+        // ★ 合併兩個來源的 context
+        let merged = mergeRAGContext(notionContext: notionCtx, notebookLMContext: nlmCtx)
+        return (context: merged, sources: sources)
+    }
+
+    /// 合併 Notion（個人筆記）+ NotebookLM（文件數據）
+    private func mergeRAGContext(notionContext: String, notebookLMContext: String) -> String {
+        if notionContext.isEmpty && notebookLMContext.isEmpty { return "" }
+        if notionContext.isEmpty { return notebookLMContext }
+        if notebookLMContext.isEmpty { return notionContext }
+
+        // 兩者都有結果 → 標註來源類型合併
+        return """
+        \(notebookLMContext)
+
+        \(notionContext)
+
+        【以上包含兩類來源：📄 文件原文數據 + 📝 個人策略筆記。請綜合兩者回答。】
+        """
     }
 
     // ═ 三層即時管線 ═
@@ -115,37 +202,16 @@ actor ResponseOrchestrator {
         guard now.timeIntervalSince(lastClaudeQueryTime) >= claudeMinInterval else { return }
         lastClaudeQueryTime = now
 
-        // Layer 2: ★ Notion 優先，NotebookLM fallback
-        var ragContext = ""
-        var ragSource = ""
+        // Layer 2: ★ 雙來源並行查詢
         emitEvent(.notebookLMQueryStarted)
-
-        if isNotionAvailable, let notion = notionService {
-            let results = await notion.query(question: questionText, maxResults: 3)
-            if !results.isEmpty {
-                ragContext = NotionRetrievalService.formatAsClaudeContext(results)
-                ragSource = results.first?.pageTitle ?? "Notion"
-                stats.notebookLMQueries += 1  // 共用統計欄位
-            }
-        }
-
-        // Notion 沒結果，試 NotebookLM
-        if ragContext.isEmpty && isNotebookLMAvailable {
-            let nbResults = await notebookLMService.query(.forMeeting(question: questionText, notebookId: notebookLMConfig.notebookId))
-            if !nbResults.isEmpty {
-                ragContext = NotebookLMService.formatAsClaudeContext(nbResults)
-                ragSource = nbResults.first?.sourceTitle ?? "NotebookLM"
-                stats.notebookLMQueries += 1
-            }
-        }
-
+        let ragResult = await parallelRAGQuery(question: questionText)
         emitEvent(.notebookLMQueryEnded)
 
-        // Layer 3: Claude + context 2-4s
+        // Layer 3: Claude + merged context 2-4s
         emitEvent(.claudeStreamingStarted)
         let startTime = CFAbsoluteTimeGetCurrent(); var text = ""
         let ctx = MeetingContext(goals: meetingContext.goals,
-            preAnalysisCache: meetingContext.preAnalysisCache + (ragContext.isEmpty ? "" : "\n\n\(ragContext)"),
+            preAnalysisCache: meetingContext.preAnalysisCache + (ragResult.context.isEmpty ? "" : "\n\n\(ragResult.context)"),
             relevantQA: meetingContext.relevantQA, recentTranscript: String(update.fullText.suffix(500)),
             attendeeInfo: meetingContext.attendeeInfo, meetingType: meetingContext.meetingType)
         let stream = await claudeService.streamQuery(question: questionText, context: ctx)
@@ -154,9 +220,9 @@ actor ResponseOrchestrator {
         emitEvent(.claudeStreamingEnded)
         guard !text.isEmpty else { return }
 
-        let hasDoc = !ragContext.isEmpty
-        let hint = hasDoc ? " 📄 \(ragSource)" : ""
-        let card = AICard(type: .aiGenerated, title: "🤖 AI 即時建議\(hint)",
+        let hasDoc = !ragResult.context.isEmpty
+        let sourceHint = ragResult.sources.isEmpty ? "" : " " + ragResult.sources.prefix(2).joined(separator: " + ")
+        let card = AICard(type: .aiGenerated, title: "🤖 AI 即時建議\(sourceHint)",
             content: text, confidence: hasDoc ? 0.92 : 0.82, latencyMs: latency, timestamp: Date())
         insertCard(card); stats.claudeQueries += 1; stats.totalCards += 1; stats.totalClaudeLatencyMs += latency
         emitEvent(.cardInserted(card))
@@ -189,22 +255,14 @@ actor ResponseOrchestrator {
     func manualQuery(_ question: String, fullTranscript: String) async {
         emitEvent(.claudeStreamingStarted)
         let t0 = CFAbsoluteTimeGetCurrent(); var text = ""
-        var ragCtx = ""
 
-        // ★ Notion 優先
+        // ★ 雙來源並行查詢
         emitEvent(.notebookLMQueryStarted)
-        if isNotionAvailable, let notion = notionService {
-            let r = await notion.query(question: question, maxResults: 3)
-            ragCtx = NotionRetrievalService.formatAsClaudeContext(r)
-        }
-        if ragCtx.isEmpty && isNotebookLMAvailable {
-            let r = await notebookLMService.query(.forMeeting(question: question, notebookId: notebookLMConfig.notebookId))
-            ragCtx = NotebookLMService.formatAsClaudeContext(r)
-        }
+        let ragResult = await parallelRAGQuery(question: question)
         emitEvent(.notebookLMQueryEnded)
 
         let ctx = MeetingContext(goals: meetingContext.goals,
-            preAnalysisCache: meetingContext.preAnalysisCache + (ragCtx.isEmpty ? "" : "\n\n\(ragCtx)"),
+            preAnalysisCache: meetingContext.preAnalysisCache + (ragResult.context.isEmpty ? "" : "\n\n\(ragResult.context)"),
             relevantQA: meetingContext.relevantQA, recentTranscript: String(fullTranscript.suffix(500)),
             attendeeInfo: meetingContext.attendeeInfo, meetingType: meetingContext.meetingType)
         let stream = await claudeService.streamQuery(question: question, context: ctx)
