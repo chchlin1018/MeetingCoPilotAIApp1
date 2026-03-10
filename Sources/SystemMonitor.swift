@@ -193,9 +193,10 @@ final class SystemMonitor {
         return (usedMB: appUsedMB, totalMB: totalMB)
     }
 
+    // ★ 閾值調整：75% → 80%（16GB Mac 正常使用約 78%）
     private static func getMemoryPressure(usedPercent: Double) -> SystemSnapshot.MemoryPressure {
         if usedPercent > 0.9 { return .critical }
-        if usedPercent > 0.75 { return .warning }
+        if usedPercent > 0.80 { return .warning }
         return .normal
     }
 
