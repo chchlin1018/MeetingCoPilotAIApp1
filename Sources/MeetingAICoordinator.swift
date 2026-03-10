@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3 — 雙串流 Coordinator + Structured Transcript
+// MeetingCopilot v4.3 — + Audio Health Monitoring
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -15,7 +15,7 @@ final class MeetingAICoordinator {
     private(set) var cards: [AICard] = []
     private(set) var fullTranscript: String = ""
     private(set) var recentTranscript: String = ""
-    private(set) var transcriptEntries: [TranscriptEntry] = []   // ★ 分色用
+    private(set) var transcriptEntries: [TranscriptEntry] = []
     private(set) var captureState: AudioCaptureState = .idle
     private(set) var activeEngineType: AudioCaptureEngineType?
     private(set) var talkingPoints: [TalkingPoint] = []
@@ -26,6 +26,14 @@ final class MeetingAICoordinator {
     private(set) var hasDualStream: Bool = false
     private(set) var stats = SessionStats()
 
+    // ★ Audio Health
+    private(set) var audioHealth = AudioHealthStatus(
+        remoteActive: false, localActive: false,
+        remoteLastReceived: nil, localLastReceived: nil,
+        remoteSegmentCount: 0, localSegmentCount: 0,
+        startupMessage: nil
+    )
+
     // MARK: 子系統
     private let pipeline: TranscriptPipeline
     private let orchestrator: ResponseOrchestrator
@@ -34,6 +42,7 @@ final class MeetingAICoordinator {
     private var eventConsumerTask: Task<Void, Never>?
     private var strategyTask: Task<Void, Never>?
     private var tpUpdateTask: Task<Void, Never>?
+    private var audioHealthTask: Task<Void, Never>?   // ★
 
     private var currentSessionRecord: MeetingSessionRecord?
     private let modelContext: ModelContext
@@ -63,31 +72,39 @@ final class MeetingAICoordinator {
             self.hasDualStream = await pipeline.hasDualStream
         } catch { self.captureState = .error(.engineStartFailed("引擎啟動失敗")); return }
 
+        // ★ 立即同步音訊健康狀態（含啟動訊息）
+        self.audioHealth = await pipeline.audioHealth
+
         await orchestrator.checkNotebookLMAvailability()
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
         await tpTracker.markMeetingStarted()
 
         let record = MeetingSessionRecord(
-            startTime: Date(),
-            engineType: activeEngineType?.rawValue ?? "unknown",
+            startTime: Date(), engineType: activeEngineType?.rawValue ?? "unknown",
             hasDualStream: hasDualStream
         )
         modelContext.insert(record)
         currentSessionRecord = record
         try? modelContext.save()
 
-        startPipelineConsumer(); startEventConsumer(); startPeriodicStrategy(); startTPUpdateLoop()
+        startPipelineConsumer(); startEventConsumer(); startPeriodicStrategy()
+        startTPUpdateLoop(); startAudioHealthLoop()   // ★
         stats.sessionStartTime = Date()
     }
 
     func stopMeeting() async {
         pipelineConsumerTask?.cancel(); eventConsumerTask?.cancel()
-        strategyTask?.cancel(); tpUpdateTask?.cancel()
+        strategyTask?.cancel(); tpUpdateTask?.cancel(); audioHealthTask?.cancel()
         await pipeline.stop(); await orchestrator.markSessionEnd()
         captureState = .idle; activeEngineType = nil
         isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
+        self.audioHealth = AudioHealthStatus(
+            remoteActive: false, localActive: false,
+            remoteLastReceived: nil, localLastReceived: nil,
+            remoteSegmentCount: 0, localSegmentCount: 0, startupMessage: nil
+        )
 
         if let record = currentSessionRecord {
             record.updateFromStats(stats, tpStats: tpStats)
@@ -113,8 +130,6 @@ final class MeetingAICoordinator {
                 guard !Task.isCancelled else { break }
                 self.fullTranscript = update.fullText
                 self.recentTranscript = update.recentText
-
-                // ★ 同步 structured entries
                 self.transcriptEntries = await self.pipeline.transcriptEntries
 
                 if let record = self.currentSessionRecord, update.segment.text.count > 10 {
@@ -155,8 +170,7 @@ final class MeetingAICoordinator {
                             title: card.title, content: card.content,
                             confidence: Double(card.confidence),
                             latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
-                        cr.session = record
-                        record.cards.append(cr)
+                        cr.session = record; record.cards.append(cr)
                     }
                 case .claudeStreamingStarted: self.isClaudeStreaming = true
                 case .claudeStreamingEnded: self.isClaudeStreaming = false
@@ -188,6 +202,17 @@ final class MeetingAICoordinator {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self else { break }; await self.syncTPState()
+            }
+        }
+    }
+
+    // ★ Audio Health 輪詢（每 3 秒）
+    private func startAudioHealthLoop() {
+        audioHealthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self else { break }
+                self.audioHealth = await self.pipeline.audioHealth
             }
         }
     }
