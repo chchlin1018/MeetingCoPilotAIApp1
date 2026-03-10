@@ -1,39 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingPrepView.swift
-// MeetingCopilot v4.3 — 會前準備設定 UI + TXT 儲存/讀取
-// ═══════════════════════════════════════════════════════════════════════════
-//
-//  功能：
-//  - 輸入會議資料（目標、參與者、Q&A、TP）
-//  - 儲存為明文 TXT 檔案（可人工編輯）
-//  - 從 TXT 檔案讀取（快速載入上次的會議準備）
-//  - 載入 Demo 資料
-//
-//  TXT 格式範例：
-//  [MEETING]
-//  title=UMC Digital Twin Meeting
-//  type=Sales Proposal
-//  duration=60
-//
-//  [GOALS]
-//  取得 PoC 預算核准
-//  確認 Q1 導入時程
-//
-//  [ATTENDEES]
-//  David Chen - VP Manufacturing
-//
-//  [QA]
-//  Q: ROI 怎麼算？
-//  K: ROI,投資,成本
-//  A: PoC $120K, 單線 $450K/yr
-//
-//  [TP]
-//  MUST|AVEVA 差異化|AVEVA,差異,定位|AVEVA 專注 Asset Lifecycle
-//
-//  [PREANALYSIS]
-//  NotebookLM pre-analysis content...
-//
-//  Platform: macOS 14.0+
+// MeetingCopilot v4.3 — 會前準備 UI + TXT 儲存/讀取 + 語言選擇
 // ═══════════════════════════════════════════════════════════════════════════
 
 import SwiftUI
@@ -63,6 +30,23 @@ struct MeetingPrepResult {
     let qaItems: [QAItem]
     let talkingPoints: [TalkingPoint]
     let durationMinutes: Int
+    let speechLocale: Locale       // ★ 語音辨識語言
+}
+
+// MARK: - 語言選項
+
+struct SpeechLanguageOption: Identifiable, Hashable {
+    let id: String               // locale identifier
+    let label: String            // 顯示名稱
+    let description: String      // 說明
+
+    static let options: [SpeechLanguageOption] = [
+        SpeechLanguageOption(id: "zh-TW", label: "🇹🇼 中文（台灣）", description: "中英混雜會議建議選此"),
+        SpeechLanguageOption(id: "en-US", label: "🇺🇸 English (US)", description: "純英文會議"),
+        SpeechLanguageOption(id: "en-GB", label: "🇬🇧 English (UK)", description: "英式英文"),
+        SpeechLanguageOption(id: "zh-CN", label: "🇨🇳 中文（簡體）", description: "簡體中文會議"),
+        SpeechLanguageOption(id: "ja-JP", label: "🇯🇵 日本語", description: "日文會議"),
+    ]
 }
 
 // MARK: - Meeting Prep View
@@ -76,6 +60,7 @@ struct MeetingPrepView: View {
     @State private var meetingType: String = "Sales Proposal"
     @State private var preAnalysis: String = ""
     @State private var durationMinutes: Int = 60
+    @State private var speechLanguage: String = "zh-TW"   // ★ 預設中文
     @State private var qaItems: [EditableQAItem] = []
     @State private var talkingPoints: [EditableTalkingPoint] = []
     @State private var statusMessage: String = ""
@@ -106,7 +91,7 @@ struct MeetingPrepView: View {
         .preferredColorScheme(.dark)
     }
 
-    // MARK: Header（含儲存/讀取按鈕）
+    // MARK: Header
 
     private var header: some View {
         HStack(spacing: 8) {
@@ -114,53 +99,28 @@ struct MeetingPrepView: View {
                 .font(.system(size: 16)).foregroundColor(.purple)
             Text("會前準備")
                 .font(.system(size: 16, weight: .bold)).foregroundColor(.white)
-
             Spacer()
-
-            // 狀態訊息
             if !statusMessage.isEmpty {
-                Text(statusMessage)
-                    .font(.system(size: 11))
-                    .foregroundColor(.green)
-                    .transition(.opacity)
+                Text(statusMessage).font(.system(size: 11)).foregroundColor(.green).transition(.opacity)
             }
-
-            // ★ 讀取 TXT
             Button(action: loadFromFile) {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder.badge.plus")
-                    Text("讀取")
-                }
+                HStack(spacing: 4) { Image(systemName: "folder.badge.plus"); Text("讀取") }
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 12))
-            .foregroundColor(.blue)
+            .buttonStyle(.plain).font(.system(size: 12)).foregroundColor(.blue)
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Color.blue.opacity(0.15))
-            .cornerRadius(4)
+            .background(Color.blue.opacity(0.15)).cornerRadius(4)
 
-            // ★ 儲存 TXT
             Button(action: saveToFile) {
-                HStack(spacing: 4) {
-                    Image(systemName: "square.and.arrow.down")
-                    Text("儲存")
-                }
+                HStack(spacing: 4) { Image(systemName: "square.and.arrow.down"); Text("儲存") }
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 12))
-            .foregroundColor(.green)
+            .buttonStyle(.plain).font(.system(size: 12)).foregroundColor(.green)
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Color.green.opacity(0.15))
-            .cornerRadius(4)
+            .background(Color.green.opacity(0.15)).cornerRadius(4)
 
-            // 載入 Demo
             Button("Demo 資料") { loadDemoData() }
-            .buttonStyle(.plain)
-            .font(.system(size: 12))
-            .foregroundColor(.teal)
+            .buttonStyle(.plain).font(.system(size: 12)).foregroundColor(.teal)
             .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Color.teal.opacity(0.15))
-            .cornerRadius(4)
+            .background(Color.teal.opacity(0.15)).cornerRadius(4)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(Color(hex: "111118"))
@@ -193,10 +153,25 @@ struct MeetingPrepView: View {
                         ForEach(meetingTypes, id: \.self) { Text($0) }
                     }.labelsHidden()
                 }
-                LabeledField("會議時長（分鐘）") {
+                LabeledField("時長（分鐘）") {
                     TextField("60", value: $durationMinutes, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: 80)
                 }
+                // ★ 語言選擇
+                LabeledField("語音辨識語言") {
+                    Picker("", selection: $speechLanguage) {
+                        ForEach(SpeechLanguageOption.options) { opt in
+                            Text(opt.label).tag(opt.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(minWidth: 160)
+                }
+            }
+            // 語言提示
+            if let opt = SpeechLanguageOption.options.first(where: { $0.id == speechLanguage }) {
+                Text(opt.description)
+                    .font(.system(size: 10)).foregroundColor(.gray.opacity(0.6))
             }
         }
     }
@@ -262,7 +237,7 @@ struct MeetingPrepView: View {
                         TextField("重點內容", text: $tp.content).font(.system(size: 12)).textFieldStyle(.roundedBorder)
                         HStack(spacing: 4) {
                             TextField("關鍵字（逗號分隔）", text: $tp.keywords).font(.system(size: 11)).textFieldStyle(.roundedBorder)
-                            TextField("支撐數據（選填）", text: $tp.supportingData).font(.system(size: 11)).textFieldStyle(.roundedBorder)
+                            TextField("支擐數據（選填）", text: $tp.supportingData).font(.system(size: 11)).textFieldStyle(.roundedBorder)
                         }
                     }
                     Button(action: { talkingPoints.removeAll { $0.id == tp.id } }) {
@@ -298,6 +273,9 @@ struct MeetingPrepView: View {
                 Text("\(talkingPoints.filter { $0.priority == .must }.count) MUST").foregroundColor(.red)
                 Text("\(talkingPoints.filter { $0.priority == .should }.count) SHOULD").foregroundColor(.yellow)
                 Text("\(talkingPoints.filter { $0.priority == .nice }.count) NICE").foregroundColor(.gray)
+                Text("·").foregroundColor(.gray)
+                // ★ 顯示選擇的語言
+                Text(speechLanguage).foregroundColor(.blue)
             }.font(.system(size: 11, design: .monospaced))
             Spacer()
             Button("清除全部") { clearAll() }
@@ -350,12 +328,14 @@ struct MeetingPrepView: View {
             return TalkingPoint(content: tp.content, priority: tp.priority,
                                 keywords: kw, supportingData: tp.supportingData.isEmpty ? nil : tp.supportingData)
         }
-        onStart(MeetingPrepResult(context: context, qaItems: builtQA, talkingPoints: builtTP, durationMinutes: durationMinutes))
+        onStart(MeetingPrepResult(
+            context: context, qaItems: builtQA, talkingPoints: builtTP,
+            durationMinutes: durationMinutes,
+            speechLocale: Locale(identifier: speechLanguage)  // ★
+        ))
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // MARK: - ★ 儲存為 TXT
-    // ═══════════════════════════════════════════════════════════
+    // MARK: - 儲存 TXT
 
     private func saveToFile() {
         let content = buildTXTContent()
@@ -364,15 +344,12 @@ struct MeetingPrepView: View {
         panel.nameFieldStringValue = sanitizeFilename(meetingTitle.isEmpty ? "meeting-prep" : meetingTitle) + ".txt"
         panel.allowedContentTypes = [.plainText]
         panel.canCreateDirectories = true
-
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 try content.write(to: url, atomically: true, encoding: .utf8)
                 statusMessage = "✅ 已儲存"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { statusMessage = "" }
-            } catch {
-                statusMessage = "❌ 儲存失敗"
-            }
+            } catch { statusMessage = "❌ 儲存失敗" }
         }
     }
 
@@ -381,25 +358,18 @@ struct MeetingPrepView: View {
         lines.append("# MeetingCopilot 會前準備檔案")
         lines.append("# 可直接用文字編輯器修改此檔案")
         lines.append("")
-
         lines.append("[MEETING]")
         lines.append("title=\(meetingTitle)")
         lines.append("type=\(meetingType)")
         lines.append("duration=\(durationMinutes)")
+        lines.append("language=\(speechLanguage)")   // ★
         lines.append("")
-
         lines.append("[GOALS]")
-        for goal in goalsText.split(separator: "\n") where !goal.isEmpty {
-            lines.append(String(goal))
-        }
+        for goal in goalsText.split(separator: "\n") where !goal.isEmpty { lines.append(String(goal)) }
         lines.append("")
-
         lines.append("[ATTENDEES]")
-        for line in attendeeInfo.split(separator: "\n") where !line.isEmpty {
-            lines.append(String(line))
-        }
+        for line in attendeeInfo.split(separator: "\n") where !line.isEmpty { lines.append(String(line)) }
         lines.append("")
-
         lines.append("[QA]")
         for item in qaItems where !item.question.isEmpty {
             lines.append("Q: \(item.question)")
@@ -407,17 +377,13 @@ struct MeetingPrepView: View {
             lines.append("A: \(item.answer)")
             lines.append("")
         }
-
         lines.append("[TP]")
         for tp in talkingPoints where !tp.content.isEmpty {
-            // 格式: PRIORITY|內容|關鍵字|支撐數據
             lines.append("\(tp.priority.rawValue)|\(tp.content)|\(tp.keywords)|\(tp.supportingData)")
         }
         lines.append("")
-
         lines.append("[PREANALYSIS]")
         lines.append(preAnalysis)
-
         return lines.joined(separator: "\n")
     }
 
@@ -427,9 +393,7 @@ struct MeetingPrepView: View {
             .replacingOccurrences(of: " ", with: "-")
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // MARK: - ★ 從 TXT 讀取
-    // ═══════════════════════════════════════════════════════════
+    // MARK: - 讀取 TXT
 
     private func loadFromFile() {
         let panel = NSOpenPanel()
@@ -437,22 +401,18 @@ struct MeetingPrepView: View {
         panel.allowedContentTypes = [.plainText]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 let content = try String(contentsOf: url, encoding: .utf8)
                 parseTXTContent(content)
                 statusMessage = "✅ 已讀取: \(url.lastPathComponent)"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { statusMessage = "" }
-            } catch {
-                statusMessage = "❌ 讀取失敗"
-            }
+            } catch { statusMessage = "❌ 讀取失敗" }
         }
     }
 
     private func parseTXTContent(_ content: String) {
         clearAll()
-
         var currentSection = ""
         var goalsLines: [String] = []
         var attendeeLines: [String] = []
@@ -461,13 +421,8 @@ struct MeetingPrepView: View {
 
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
-
-            // 跳過註解
             if line.hasPrefix("#") { continue }
-
-            // Section header
             if line.hasPrefix("[") && line.hasSuffix("]") {
-                // 儲存上一個未完成的 QA
                 if !currentQA.q.isEmpty {
                     qaItems.append(EditableQAItem(question: currentQA.q, keywords: currentQA.k, answer: currentQA.a))
                     currentQA = ("", "", "")
@@ -475,26 +430,18 @@ struct MeetingPrepView: View {
                 currentSection = line.uppercased()
                 continue
             }
-
             switch currentSection {
             case "[MEETING]":
                 if line.hasPrefix("title=") { meetingTitle = String(line.dropFirst(6)) }
                 else if line.hasPrefix("type=") { meetingType = String(line.dropFirst(5)) }
                 else if line.hasPrefix("duration=") { durationMinutes = Int(line.dropFirst(9)) ?? 60 }
-
+                else if line.hasPrefix("language=") { speechLanguage = String(line.dropFirst(9)) }  // ★
             case "[GOALS]":
-                if !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                    goalsLines.append(line)
-                }
-
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty { goalsLines.append(line) }
             case "[ATTENDEES]":
-                if !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                    attendeeLines.append(line)
-                }
-
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty { attendeeLines.append(line) }
             case "[QA]":
                 if line.hasPrefix("Q: ") || line.hasPrefix("Q:") {
-                    // 儲存上一筆
                     if !currentQA.q.isEmpty {
                         qaItems.append(EditableQAItem(question: currentQA.q, keywords: currentQA.k, answer: currentQA.a))
                     }
@@ -504,7 +451,6 @@ struct MeetingPrepView: View {
                 } else if line.hasPrefix("A: ") || line.hasPrefix("A:") {
                     currentQA.a = String(line.dropFirst(line.hasPrefix("A: ") ? 3 : 2))
                 }
-
             case "[TP]":
                 let parts = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
                 if parts.count >= 2 {
@@ -515,26 +461,19 @@ struct MeetingPrepView: View {
                     default: priority = .nice
                     }
                     talkingPoints.append(EditableTalkingPoint(
-                        content: parts[1],
-                        priority: priority,
+                        content: parts[1], priority: priority,
                         keywords: parts.count > 2 ? parts[2] : "",
                         supportingData: parts.count > 3 ? parts[3] : ""
                     ))
                 }
-
             case "[PREANALYSIS]":
                 preAnalysisLines.append(line)
-
-            default:
-                break
+            default: break
             }
         }
-
-        // 最後一筆 QA
         if !currentQA.q.isEmpty {
             qaItems.append(EditableQAItem(question: currentQA.q, keywords: currentQA.k, answer: currentQA.a))
         }
-
         goalsText = goalsLines.joined(separator: "\n")
         attendeeInfo = attendeeLines.joined(separator: "\n")
         preAnalysis = preAnalysisLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -549,6 +488,7 @@ struct MeetingPrepView: View {
         attendeeInfo = demo.umcMeetingContext.attendeeInfo
         meetingType = demo.umcMeetingContext.meetingType
         preAnalysis = demo.umcMeetingContext.preAnalysisCache
+        speechLanguage = "zh-TW"  // ★
         qaItems = demo.umcQAItems.map { qa in
             EditableQAItem(question: qa.question, keywords: qa.keywords.joined(separator: ", "), answer: qa.shortAnswer)
         }
@@ -560,7 +500,8 @@ struct MeetingPrepView: View {
 
     private func clearAll() {
         meetingTitle = ""; goalsText = ""; attendeeInfo = ""
-        preAnalysis = ""; qaItems = []; talkingPoints = []; durationMinutes = 60
+        preAnalysis = ""; qaItems = []; talkingPoints = []
+        durationMinutes = 60; speechLanguage = "zh-TW"
     }
 }
 
