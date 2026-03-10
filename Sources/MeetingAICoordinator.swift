@@ -1,19 +1,19 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3 — 雙串流 Coordinator（說話者分離）
+// MeetingCopilot v4.3 — 雙串流 Coordinator + SwiftData Persistence
 // ═══════════════════════════════════════════════════════════════════════════
 //
-//  v4.2 → v4.3 核心變更：
-//  - TranscriptUpdate 新增 speaker: SpeakerSource (.remote / .local)
-//  - .remote → ResponseOrchestrator（觸發問題偵測 + 三層管線）
-//  - .local  → TalkingPointsTracker（偵測「我講了什麼」）
-//  - UI 新增 hasDualStream 狀態指示
+//  v4.3 完整功能：
+//  - 雙串流說話者分離 (.remote / .local)
+//  - SwiftData 會議記錄持久化（startMeeting 建立 / stopMeeting 存入）
+//  - Transcript + Card 即時存入 DB
 //
 //  Platform: macOS 14.0+
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
 import SwiftUI
+import SwiftData
 
 @Observable
 @MainActor
@@ -30,7 +30,7 @@ final class MeetingAICoordinator {
     private(set) var isNotebookLMAvailable: Bool = false
     private(set) var isNotebookLMQuerying: Bool = false
     private(set) var isClaudeStreaming: Bool = false
-    private(set) var hasDualStream: Bool = false            // ★ v4.3 新增
+    private(set) var hasDualStream: Bool = false
     private(set) var stats = SessionStats()
 
     // MARK: 子系統
@@ -42,11 +42,16 @@ final class MeetingAICoordinator {
     private var strategyTask: Task<Void, Never>?
     private var tpUpdateTask: Task<Void, Never>?
 
+    // ★ Persistence
+    private var currentSessionRecord: MeetingSessionRecord?
+    private let modelContext: ModelContext
+
     init(claudeAPIKey: String, claudeModel: String = "claude-sonnet-4-20250514",
          notebookLMConfig: NotebookLMConfig = .default, meetingContext: MeetingContext) {
         self.pipeline = TranscriptPipeline()
         self.orchestrator = ResponseOrchestrator(claudeAPIKey: claudeAPIKey, claudeModel: claudeModel,
             notebookLMConfig: notebookLMConfig, meetingContext: meetingContext)
+        self.modelContext = ModelContext(MeetingDataStore.container)
     }
 
     // MARK: 會前設定
@@ -65,12 +70,22 @@ final class MeetingAICoordinator {
             try await pipeline.start(config: config)
             self.captureState = await pipeline.captureState
             self.activeEngineType = await pipeline.activeEngineType
-            self.hasDualStream = await pipeline.hasDualStream  // ★ v4.3
+            self.hasDualStream = await pipeline.hasDualStream
         } catch { self.captureState = .error(.engineStartFailed("引擎啟動失敗")); return }
 
         await orchestrator.checkNotebookLMAvailability()
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
         await tpTracker.markMeetingStarted()
+
+        // ★ Persistence: 建立會議記錄
+        let record = MeetingSessionRecord(
+            startTime: Date(),
+            engineType: activeEngineType?.rawValue ?? "unknown",
+            hasDualStream: hasDualStream
+        )
+        modelContext.insert(record)
+        currentSessionRecord = record
+        try? modelContext.save()
 
         startPipelineConsumer(); startEventConsumer(); startPeriodicStrategy(); startTPUpdateLoop()
         stats.sessionStartTime = Date()
@@ -85,6 +100,13 @@ final class MeetingAICoordinator {
         isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
+
+        // ★ Persistence: 存入會議統計
+        if let record = currentSessionRecord {
+            record.updateFromStats(stats, tpStats: tpStats)
+            try? modelContext.save()
+        }
+        currentSessionRecord = nil
     }
 
     // MARK: 手動操作
@@ -96,28 +118,32 @@ final class MeetingAICoordinator {
     func markTPCompleted(_ id: UUID) async { await tpTracker.markCompleted(id); await syncTPState() }
     func markTPSkipped(_ id: UUID) async { await tpTracker.markSkipped(id); await syncTPState() }
 
-    // MARK: ★ 雙串流管線消費（v4.3 核心變更）
+    // MARK: 雙串流管線消費
     private func startPipelineConsumer() {
         pipelineConsumerTask = Task { [weak self] in
             guard let self else { return }
             let updates = await self.pipeline.updates!
             for await update in updates {
                 guard !Task.isCancelled else { break }
-
-                // 更新 UI 逐字稿（雙方合併）
                 self.fullTranscript = update.fullText
                 self.recentTranscript = update.recentText
 
+                // ★ Persistence: 存入逐字稿
+                if let record = self.currentSessionRecord, update.segment.text.count > 10 {
+                    let tr = TranscriptRecord(timestamp: update.segment.timestamp,
+                        text: update.segment.text, speaker: update.speaker.rawValue,
+                        isFinal: update.segment.isFinal, confidence: update.segment.confidence)
+                    tr.session = record
+                    record.transcripts.append(tr)
+                }
+
                 switch update.speaker {
                 case .remote:
-                    // ★ 對方的聲音 → 進入三層管線（問題偵測 + AI 回應）
                     let tpStats = await self.tpTracker.getStats()
                     let unfinished = await self.tpTracker.getAllTalkingPoints()
                         .filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
                     await self.orchestrator.processUpdate(update, tpStats: tpStats, unfinishedMust: unfinished)
-
                 case .local:
-                    // ★ 我的聲音 → 僅用於 TP 追蹤（偵測「我講了什麼」）
                     let reminders = await self.tpTracker.analyzeTranscript(update.segment.text)
                     await self.syncTPState()
                     for r in reminders { await self.orchestrator.handleTPReminder(r) }
@@ -126,7 +152,6 @@ final class MeetingAICoordinator {
         }
     }
 
-    // ─── 事件消費（同步 Orchestrator → UI）───
     private func startEventConsumer() {
         eventConsumerTask = Task { [weak self] in
             guard let self else { return }
@@ -134,7 +159,17 @@ final class MeetingAICoordinator {
             for await event in events {
                 guard !Task.isCancelled else { break }
                 switch event.type {
-                case .cardInserted: self.cards = await self.orchestrator.cards; self.stats = await self.orchestrator.stats
+                case .cardInserted(let card):
+                    self.cards = await self.orchestrator.cards
+                    self.stats = await self.orchestrator.stats
+                    // ★ Persistence: 存入卡片
+                    if let record = self.currentSessionRecord {
+                        let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue,
+                            title: card.title, content: card.content, confidence: card.confidence,
+                            latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
+                        cr.session = record
+                        record.cards.append(cr)
+                    }
                 case .claudeStreamingStarted: self.isClaudeStreaming = true
                 case .claudeStreamingEnded: self.isClaudeStreaming = false
                 case .notebookLMQueryStarted: self.isNotebookLMQuerying = true
@@ -145,7 +180,6 @@ final class MeetingAICoordinator {
         }
     }
 
-    // ─── 背景策略分析 ───
     private func startPeriodicStrategy() {
         strategyTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000_000)
