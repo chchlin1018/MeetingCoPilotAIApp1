@@ -1,17 +1,6 @@
 // SystemAudioCaptureEngine.swift
-// MeetingCopilot v4.0 — Primary: ScreenCaptureKit System Audio Capture
-//
-// Captures Teams/Zoom/Meet system audio output via ScreenCaptureKit,
-// feeds into Apple Speech Framework for real-time transcription.
-//
-// Core Design:
-// 1. Captures "their voice" (system audio), not microphone
-// 2. Partial Results streaming, no waiting for sentence completion
-// 3. Actor isolation for thread safety
-// 4. Auto-detects running meeting apps
-//
-// Platform: macOS 14.0+ (Sonoma)
-// Requires: Screen Recording permission
+// MeetingCopilot v4.2 — Primary: ScreenCaptureKit System Audio Capture
+// Fixed: Actor isolation for Swift Strict Concurrency
 
 import Foundation
 import ScreenCaptureKit
@@ -28,13 +17,16 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
+    // Fix: nonisolated(unsafe) for Swift Strict Concurrency
+    // Safe because _state is only mutated within the actor
+    nonisolated(unsafe) private var _state: AudioCaptureState = .idle
+    
     nonisolated var state: AudioCaptureState {
         get { _state }
     }
     
     // MARK: - Internal State
     
-    private var _state: AudioCaptureState = .idle
     private var streamContinuation: AsyncStream<TranscriptSegment>.Continuation?
     
     // ScreenCaptureKit
@@ -285,7 +277,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
                 if let error = error {
                     let nsError = error as NSError
                     if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                        // Timeout (60s limit), auto-restart
                         await self.restartSpeechRecognition()
                     } else {
                         await self.handleCaptureError(
