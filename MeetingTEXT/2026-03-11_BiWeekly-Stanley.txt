@@ -19,6 +19,7 @@ MBI Utitech 案進度更新：TECO M&A 接洽 / William 20% treasury stock / Bre
 YTEC 先進封裝設備 Penang 合作接洽進度
 BC/UB Penang Remote Support POC 狀態確認
 iVP/TCA 資本參與 MBI Utitech 可能性討論
+★ Lillian Lung (Gamuda) 回覆討論：HTFA 入會流程 + 4月訪台安排 + 回信確認
 
 [ATTENDEES]
 Stanley - Partner, iVP/TCA
@@ -39,9 +40,13 @@ Q: Johor DC 專案 John 那邊有沒有新的水處理需求明確？
 K: Johor, DC, 水處理, John, 需求
 A: 釘清我們在 deal 中的角色和商業模式
 
-Q: Gamuda/Silicon Island 加入 HTFA 的進度？
-K: Gamuda, Silicon Island, HTFA, Lilian
-A: 確認是否有回應 Michael 的 agency proposal
+Q: Lillian 3/6 回信要怎麼回覆？HTFA 入會流程和 4月訪台安排？
+K: Lillian, Gamuda, Silicon Island, HTFA, 入會, 訪台
+A: 確認 Stanley 同意回覆內容：HTFA 入會由 Michael 提交申請、4月訪台安排哪些會面、是否 CC Stanley
+
+Q: Gamuda agency engagement 的商業模式怎麼定？
+K: Gamuda, agency, engagement, 顧問, 合作
+A: Michael 作為台灣代理/顧問的 engagement basis、費用結構、與 Stanley 角色分工
 
 Q: YTEC Mr. Hsiao 見面有沒有排定？
 K: YTEC, Hsiao, 封裝設備, Penang
@@ -78,10 +83,10 @@ A: 透過 HTFA + Digital Twin Alliance 連結。MetAI 標準可用於 DC Design/
 MUST|MBI Utitech 進度更新|TECO Teresa→Jason M&A; William 20% treasury; Bred+Sean 36% LOI 目標 3月|Utitech, TECO, M&A, 併購, 股權
 MUST|iVP/TCA 資本參與時程|確認 Stanley 資本加入 MBI 的時機和條件|iVP, TCA, 資本, 投資, MBI
 MUST|Johor DC + 水處理下一步|John 需求明確 + Mega Union 導入 + 我們角色定義|Johor, DC, 水處理, John, Mega Union
+SHOULD|★ Lillian/Gamuda 回覆確認|3/6 Lillian 回信：想加入 HTFA + 4月訪台。Draft 已備好，需 Stanley 確認內容|Lillian, Gamuda, Silicon Island, HTFA, 訪台, 回覆
 SHOULD|YTEC Penang 合作排程|3月見 VP Hsiao + Chairman Wang; Penang 封裝設備銷售|YTEC, Hsiao, Wang, Penang, 封裝
 SHOULD|MetAI/Digital Twin Alliance 更新|TSMC NT$100M PO; Micron 1H2026; NVIDIA Jackson DC 標準擴展|MetAI, TSMC, Micron, NVIDIA, Digital Twin
 SHOULD|BC/UB Penang POC 狀態|EDGE:ICPDAS + Control Room:Utitech; 待確認成本|BC, UB, Penang, POC, ICPDAS
-NICE|Gamuda/Silicon Island HTFA|等待 Lilian 回應; 幫助加入 HTFA|Gamuda, Silicon Island, HTFA, Lilian
 NICE|Dr YT Chin / Silicon Connect|YTEC 合併討論; ML Adv Training R&D Center|YT Chin, Silicon Connect, YTEC
 
 [PREANALYSIS]
@@ -91,4 +96,5 @@ NICE|Dr YT Chin / Silicon Connect|YTEC 合併討論; ML Adv Training R&D Center|
 3. Mega Union: 已找到台灣水處理 IPO 公司，新加坡有分公司。
 4. YTEC: Robert 已見面，確認 Penang 已有客戶，可討論合作。
 5. MetAI: TSMC NT$100M PO, Micron 1H2026, valuation USD 70M+。
+★ 6. Lillian Lung (Gamuda ED) 3/6 回信：想參與台灣半導體生態系、詢問 HTFA 入會流程、計畫 4月訪台、附 Silicon Island 簡報 PDF。已草擬回覆 draft（CC Stanley + Immanuel Tan），待會議確認後發送。
 策略重點：3-4月 Michael 將專注 MBI Utitech + TECO 平台建構，需要確認 iVP/Stanley 資本加入時機。
