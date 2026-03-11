@@ -1,0 +1,94 @@
+# MeetingCopilot 會前準備檔案
+# BiWeekly with Stanley - 11 Mar 2026
+
+[MEETING]
+title=BiWeekly-Stanley-11Mar26
+type=Review Meeting
+duration=60
+language=zh-TW
+
+[SOURCES]
+notion_page_id=
+notion_page_url=
+notebooklm_notebook_id=
+notebooklm_bridge_url=http://localhost:3210
+
+[GOALS]
+MBI Utitech 案進度更新：TECO M&A 接洽 / William 20% treasury stock / Bred+Sean 36% LOI
+確認 Johor DC 專案下一步：水處理 + NVIDIA/TECO Digital Twin 連結
+YTEC 先進封裝設備 Penang 合作接洽進度
+BC/UB Penang Remote Support POC 狀態確認
+iVP/TCA 資本參與 MBI Utitech 可能性討論
+
+[ATTENDEES]
+Stanley - Partner, iVP/TCA
+Michael Lin - CEO, Reality Matrix / MacroVision
+
+[QA_MY_QUESTIONS]
+# 我方主動提問
+
+Q: TECO M&A head Jason 那邊有沒有新的 feedback？
+K: TECO, Jason, M&A, Utitech, 併購
+A: 了解 TECO 內部決策進度，判斷是否需要加速推進
+
+Q: iVP/TCA 資本參與 MBI Utitech 的意願和時程？
+K: iVP, TCA, 資本, 投資, Utitech
+A: 確認 Stanley 的資本可以何時加入，與 TECO 如何協調
+
+Q: Johor DC 專案 John 那邊有沒有新的水處理需求明確？
+K: Johor, DC, 水處理, John, 需求
+A: 釘清我們在 deal 中的角色和商業模式
+
+Q: Gamuda/Silicon Island 加入 HTFA 的進度？
+K: Gamuda, Silicon Island, HTFA, Lilian
+A: 確認是否有回應 Michael 的 agency proposal
+
+Q: YTEC Mr. Hsiao 見面有沒有排定？
+K: YTEC, Hsiao, 封裝設備, Penang
+A: 確認 3月見面時程和議程
+
+[QA_THEIR_QUESTIONS]
+# Stanley 可能提問
+
+Q: Utitech 的 valuation 和入股條件是什麼？
+K: Utitech, valuation, 入股, 條件, 股價
+A: 20% treasury stock 由全體股東決議。另 36% 分散股東（Bred 12%, Sean 6%, Otto 5%）可談 LOI。Chairman William 24%
+
+Q: TECO 為什麼有興趣併購 Utitech？
+K: TECO, 併購, 動機, 工業軟體
+A: TECO 積極擴展 DC + 工業平台，已投資 MetAI(USD 6M)，已併購 NCL Energy(ML DC)。Utitech 作為 Industrial Software 平台重組
+
+Q: MetAI 和 Digital Twin Alliance 的最新狀況？
+K: MetAI, Digital Twin, Alliance, HTFA, NVIDIA, TSMC
+A: TSMC 已簽 NT$100M PO，Micron 將在 1H2026 簽約。MetAI valuation USD 70M+。NVIDIA Jackson 計畫擴展到 DC 標準
+
+Q: 水處理廠商找到了嗎？
+K: 水處理, Mega Union, 台灣, 設備
+A: 已找到 Mega Union（台灣 IPO 公司，TSMC/UMC/ASE 客戶），新加坡有分公司。已是 AVEVA SI partner with Utitech
+
+Q: BC/UB Penang POC 進度如何？
+K: BC, UB, Penang, POC, EDGE, ICPDAS
+A: EDGE 端用 ICPDAS（AVV Partner），Control Room 用 Utitech。待確認 POC 成本和時程
+
+Q: Kulai Johor DC 專案怎麼跟 NVIDIA/TECO 連結？
+K: Kulai, Johor, DC, NVIDIA, TECO, Digital Twin
+A: 透過 HTFA + Digital Twin Alliance 連結。MetAI 標準可用於 DC Design/Build/Operate。TECO 有 DC 經驗(Google partner)
+
+[TP]
+MUST|MBI Utitech 進度更新|TECO Teresa→Jason M&A; William 20% treasury; Bred+Sean 36% LOI 目標 3月|Utitech, TECO, M&A, 併購, 股權
+MUST|iVP/TCA 資本參與時程|確認 Stanley 資本加入 MBI 的時機和條件|iVP, TCA, 資本, 投資, MBI
+MUST|Johor DC + 水處理下一步|John 需求明確 + Mega Union 導入 + 我們角色定義|Johor, DC, 水處理, John, Mega Union
+SHOULD|YTEC Penang 合作排程|3月見 VP Hsiao + Chairman Wang; Penang 封裝設備銷售|YTEC, Hsiao, Wang, Penang, 封裝
+SHOULD|MetAI/Digital Twin Alliance 更新|TSMC NT$100M PO; Micron 1H2026; NVIDIA Jackson DC 標準擴展|MetAI, TSMC, Micron, NVIDIA, Digital Twin
+SHOULD|BC/UB Penang POC 狀態|EDGE:ICPDAS + Control Room:Utitech; 待確認成本|BC, UB, Penang, POC, ICPDAS
+NICE|Gamuda/Silicon Island HTFA|等待 Lilian 回應; 幫助加入 HTFA|Gamuda, Silicon Island, HTFA, Lilian
+NICE|Dr YT Chin / Silicon Connect|YTEC 合併討論; ML Adv Training R&D Center|YT Chin, Silicon Connect, YTEC
+
+[PREANALYSIS]
+上次會議 0214 後的主要進展：
+1. TECO: Michael 已見 Teresa（報告副董事長），下一步提交給 M&A head Jason。
+2. Utitech: CFO Bred + VP Sean 已談好 3月內部推進策略。
+3. Mega Union: 已找到台灣水處理 IPO 公司，新加坡有分公司。
+4. YTEC: Robert 已見面，確認 Penang 已有客戶，可討論合作。
+5. MetAI: TSMC NT$100M PO, Micron 1H2026, valuation USD 70M+。
+策略重點：3-4月 Michael 將專注 MBI Utitech + TECO 平台建構，需要確認 iVP/Stanley 資本加入時機。
