@@ -32,62 +32,64 @@
 - [x] **語音辨識語言選擇**（zh-TW / en-US / en-GB / zh-CN / ja-JP）
 - [x] **會後儲存**（逐字稿 + AI 卡片 + TP 狀態 + 統計 → TXT）
 - [x] **Notion RAG**（NotionRetrievalService）
-  - [x] Notion REST API 搜尋 + block content 擷取
-  - [x] 多關鍵字展開
-  - [x] Keychain + 設定 UI
-- [x] **雙來源並行 RAG**（NotebookLM + Notion 同時查詢，合併 context）
-- [x] **雙串流 UI 分色顯示**
-  - [x] TranscriptEntry structured 陣列
-  - [x] [對方] 白色 + 白色左邊條 / [我方] 青色 + 青色左邊條
-  - [x] ScrollViewReader 自動捲動
-- [x] **TP 偵測標示**（✅ 偵測到我方已講 / 🔊 偵測中 + detectedSpeech）
-- [x] **系統健康監控**（SystemMonitor）
-  - [x] CPU 使用率（Mach API）
-  - [x] 記憶體使用量 + 壓力指示（vm_statistics64）
-  - [x] 網路品質（API 延遲滿動平均）
-  - [x] 右側 SYSTEM HEALTH 面板 + 進度條 + 色碼
+- [x] **雙來源並行 RAG**（NotebookLM + Notion 同時查詢）
+- [x] **雙串流 UI 分色顯示**（TranscriptEntry + ScrollViewReader）
+- [x] **TP 偵測標示**（✅ 偵測到我方已講 / 🔊 偵測中）
+- [x] **系統健康監控**（SystemMonitor: CPU/Memory/Network）
 - [x] **Bundle ID 更新** com.RealityMatrix.MeetingCopilot
 - [x] SwiftData Persistence
 - [x] XCTest 單元測試（4 組）
 
 ### v4.3.1 — SystemCheck + 即時體驗改善
-- [x] **會前系統檢查**（SystemCheckView）
-  - [x] 8 項自動檢測：麥克風、語音辨識、螢幕錄製、音訊擷取、語音辨識、Claude AI、Notion API、NotebookLM Bridge
-  - [x] 即時狀態顯示（pending/testing/passed/failed/skipped）
-  - [x] 延遲時間顯示（ms）
-  - [x] 加入 Xcode project target（project.pbxproj）
-- [x] **KeychainManager API 修正**
-  - [x] `KeychainManager.shared.retrieve()` → `KeychainManager.load(key:)`（enum 靜態方法，非 class singleton）
-  - [x] 修復 SystemCheckView 3 個 build error
-- [x] **TranscriptPipeline 錯誤訊息分類**
-  - [x] `describeError()` 根據 AudioCaptureError 類型顯示不同訊息
-  - [x] noAudioSourceFound → 「找不到會議 App」（而非「權限未授權」）
-  - [x] permissionDenied → 「權限未授權（需在系統設定開啟）」
-- [x] **即時 Partial Results 顯示**
-  - [x] Transcript panel 底部紫色波形 + monospaced 即時文字
-  - [x] 「正在聆聽...」（取代空白的「等待會議音訊...」）
-  - [x] recentTranscript 直接取 segment text（修復雙串流空白 bug）
-  - [x] buildMergedTranscript() 加入 partial text
-- [x] **說話者配色統一**
-  - [x] 對方 = 青色（cyan）/ 我方 = 黃色（yellow）
-  - [x] 適用於：已確認 entries、partial indicator、header legend
-- [x] **音訊健康監控 badge**
-  - [x] Header bar 顯示對方/我方串流狀態（active/idle/disconnected）
-  - [x] segment count 即時更新
-  - [x] 啟動通知橫幅（成功/警告/錯誤）
+- [x] **會前系統檢查**（SystemCheckView: 8 項自動檢測）
+- [x] **KeychainManager API 修正**（enum 靜態方法，修 3 build errors）
+- [x] **TranscriptPipeline 錯誤訊息分類**（describeError per AudioCaptureError type）
+- [x] **即時 Partial Results 顯示**（紫色波形 + 正在聆聽）
+- [x] **說話者配色統一**（對方=cyan / 我方=yellow）
+- [x] **音訊健康監控 badge**（active/idle/disconnected + segment count）
+- [x] **APIKeys.swift hardcoded fallback**（優先讀本地 key，Keychain 備援）
+- [x] **AI Teleprompter 開場顯示第一個 MUST TP**（22pt 大字）
+- [x] **字體放大**（逐字稿 16pt / AI 卡片 16pt / Partial 15pt）
+- [x] **會後報告**（AI 摘要 + Action Items + Markdown/TXT/Notion 匯出）
+- [x] **MeetingPrep Skill 文件**（skills/MeetingPrep-SKILL.md）
+  - Notion SSOT 工作流 + TXT 格式定義 + Phase 1-2 完整流程
+  - Notion parent page ID: 320f154a-6472-804f-a226-c3694c1bb319
+
+### feature/transcript-only — 精簡語音辨識測試分支
+- [x] **新建 TranscriptOnly.xcodeproj**（獨立 Xcode 專案）
+- [x] **TranscriptOnlyApp.swift**（精簡 @main，無 API Key）
+- [x] **TranscriptOnlyView.swift**（完整 UI + ViewModel）
+  - 語言選擇（5 種）+ 開始/停止按鈕
+  - 分色逐字稿（對方=cyan / 我方=yellow）
+  - Live Partial Results（紫色即時文字）
+  - Audio Health 監控（active/idle/disconnected + segment count）
+  - 匯出逐字稿 TXT + 自動捲動
+- [x] **直接接入現有 TranscriptPipeline**（不是 stub）
+- [x] **Bundle ID**: com.RealityMatrix.TranscriptOnly
+- [x] **只編譯 6 個 Swift 檔案**（vs main 的 18 個）
+- [x] **推送到 GitHub** feature/transcript-only 分支
 
 ---
 
-## 🔜 下一步（v4.4）
+## 🔜 下一步
 
-### P0 — 影響測試品質
+### 即時 — TranscriptOnly 測試驗證
+- [ ] Zoom 會議實測：雙串流辨識正常
+- [ ] Teams 會議實測：雙串流辨識正常
+- [ ] 30 分鐘穩定性測試（不 crash）
+- [ ] 中英文混合辨識測試
+- [ ] 匯出 TXT 內容驗證
+
+### v4.4 — AI 功能增強
+
+#### P0 — 影響測試品質
 - [ ] **Claude 動態關鍵字展開**（取代靜態對照表）
   - 問題送 Claude 快速 API call → 回傳 3-5 個展開搜尋詞
 - [ ] **會前準備 Notion 自動同步**
   - Claude 讀取 Notion page → 自動產生 TXT → push GitHub
   - 參考 MeetingPrep-SKILL.md 工作流
 
-### P1 — 影響 pilot 品質
+#### P1 — 影響 pilot 品質
 - [ ] **Evidence-based Card Model**
   - AICard 加 `evidences: [SourceCitation]`
   - `inferenceType`: localMatch / ragPlusLLM / llmOnly
@@ -97,7 +99,7 @@
   - 三層命中率 + 延遲 histogram
   - Notion vs NotebookLM 命中比較
 
-### P2 — 品質改善
+#### P2 — 品質改善
 - [ ] **會前準備 UI 改進**
   - 最近 TXT 檔案列表 + Q&A 從 Notion 自動匯入
 - [ ] **Tests 整合到 Xcode Test Target**
@@ -122,12 +124,17 @@
 
 ---
 
-## 技術債
+## ⚠️ 已知問題 / 技術債
 
+### 安全（優先處理）
+- [ ] ⚠️ APIKeys.swift 已 push 到 GitHub（需 `git rm --cached Sources/APIKeys.swift`）
+- [ ] ⚠️ Claude API Key 和 Notion Key 已在聊天中曝光 → 需 rotate
+
+### 工程
+- [ ] `UsageExample.swift` 過大（~950 行），應拆分為多個 View
 - [ ] `MeetingSessionStore.swift` 尚未完全整合到 Coordinator
 - [ ] Tests 目錄未加入 Xcode Test target
 - [ ] Notion 關鍵字展開用靜態表，應改 Claude 動態展開
-- [ ] `UsageExample.swift` 過大（~950 行），應拆分為多個 View 檔案
 - [ ] SystemMonitor.reportLatency 未接線到 ResponseOrchestrator
 - [x] ~~SystemCheckView.swift 未加入 Xcode project target~~ (fixed 2026-03-11)
 - [x] ~~KeychainManager.shared 不存在（enum 無 singleton）~~ (fixed 2026-03-11)
@@ -136,36 +143,47 @@
 
 ---
 
+## 已建立的會議
+
+| 會議 | Notion Page ID | NotebookLM ID | TXT |
+|------|---------------|---------------|-----|
+| BiWeekly-Stanley-11Mar26 | 320f154a-6472-815c-8ad0-c214783dfe22 | ccaeee5e-8971-49e1-801d-2989ded2c61b | 2026-03-11_BiWeekly-Stanley.txt |
+| BiWeekly-Mark-JJ-12Mar26 | 320f154a-6472-813f-bc2c-d98e570ab696 | 51364658-5c30-4b55-8118-5103095ae8d0 | 2026-03-12_BiWeekly-Mark-JJ.txt |
+
+---
+
 ## Session 完成項目摘要
+
+### 2026-03-11 晚間 — feature/transcript-only 分支
+
+| 項目 | 內容 |
+|------|------|
+| 新分支 | `feature/transcript-only`（從 main 建立） |
+| 新專案 | `TranscriptOnly.xcodeproj`（獨立 Xcode 專案） |
+| 新檔案 | TranscriptOnlyApp.swift, TranscriptOnlyView.swift |
+| 設定檔 | Info.plist, TranscriptOnly.entitlements, Assets.xcassets |
+| 文件 | TranscriptOnly-README.md |
+| 編譯 | 6 Swift 檔案（vs main 18 個） |
+| 結果 | ✅ Build & Run 成功，UI 正常顯示 |
 
 ### 2026-03-11（v4.3.1）
 
 | Commit | 內容 |
 |--------|------|
-| `d92e8db` | fix: KeychainManager.shared.retrieve → KeychainManager.load（修 3 build errors） |
-| `9e4dcbb` | fix: SystemCheckView.swift 加入 Xcode project target（PBXBuildFile + PBXFileReference） |
-| `6a886fd` | improve: TranscriptPipeline 錯誤訊息分類（describeError per AudioCaptureError type） |
-| `6877c9f` | feat: transcript panel 即時 partial results 顯示（紫色波形 + 「正在聆聽...」） |
-| `1243672` | fix: recentTranscript 雙串流空白 bug（直接用 segment text + partial in buildMerged） |
+| `d92e8db` | fix: KeychainManager.shared.retrieve → KeychainManager.load |
+| `9e4dcbb` | fix: SystemCheckView.swift 加入 Xcode project target |
+| `6a886fd` | improve: TranscriptPipeline 錯誤訊息分類 |
+| `6877c9f` | feat: transcript panel 即時 partial results 顯示 |
+| `1243672` | fix: recentTranscript 雙串流空白 bug |
 | `c5eb66b` | style: 說話者配色統一（對方=cyan 我方=yellow） |
+| 後續 | APIKeys.swift + Keychain fallback + 字體放大 + Teleprompter |
+| 後續 | BiWeekly-Stanley TXT + MeetingPrep-SKILL.md |
 
 ### 2026-03-10（v4.3）
 
 | Commit | 內容 |
 |--------|------|
-| `85aea06` | 會後儲存逐字稿 + AI 卡片 TXT |
-| `b81f123` | 會前準備 語言選擇 Picker |
-| `5152282` | 語言設定傳到 AudioCaptureConfiguration |
-| `7c2083e` | NotionRetrievalService + KeychainManager + Orchestrator |
-| `1df1408` | 設定 UI 加 Notion API Key |
-| `2b4bfe7` | NotionRetrievalService 加入 Xcode build target |
-| `06cb464` | 雙來源並行 RAG (async let) |
-| `4d3b1b6` | Structured TranscriptEntry + TP detectedSpeech |
-| `bbb19c8` | 雙串流分色 UI + TP 偵測標示 |
-| `ba0162e` | SystemMonitor (CPU/Memory/Network) |
-| `8bf50c4` | SYSTEM HEALTH 面板 UI |
-| `891330f` | SystemMonitor 加入 Xcode build target (build 7) |
-| `fd1da57` | Bundle ID → com.RealityMatrix.MeetingCopilot |
+| 多次 | 雙串流 + 並行 RAG + 分色 UI + SystemMonitor + 會後儲存 |
 
 ---
 
@@ -175,9 +193,9 @@
 |------|:----:|:----:|:------:|:----:|
 | 產品概念 | 9/10 | 9/10 | 9/10 | 9/10 |
 | 架構方向 | 8.5/10 | 9/10 | 9/10 | 9/10 |
-| Demo 展示力 | 9/10 | 9.5/10 | **9.5/10** | 10/10 |
-| 工程完整度 | 7/10 | 8.5/10 | **9/10** | 9/10 |
-| 可維護性 | 7/10 | 8/10 | **8.5/10** | 9/10 |
-| 生產可用性 | 5/10 | 7.5/10 | **8/10** | 8/10 |
-| 企業落地潛力 | 7.5/10 | 8.5/10 | **8.5/10** | 9/10 |
-| 安全治理 | 4.5/10 | 6/10 | **6.5/10** | 8/10 |
+| Demo 展示力 | 9/10 | 9.5/10 | 9.5/10 | 10/10 |
+| 工程完整度 | 7/10 | 8.5/10 | 9/10 | 9/10 |
+| 可維護性 | 7/10 | 8/10 | 8.5/10 | 9/10 |
+| 生產可用性 | 5/10 | 7.5/10 | 8/10 | 8/10 |
+| 企業落地潛力 | 7.5/10 | 8.5/10 | 8.5/10 | 9/10 |
+| 安全治理 | 4.5/10 | 6/10 | 6.5/10 | 8/10 |
