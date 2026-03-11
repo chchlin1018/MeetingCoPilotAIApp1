@@ -74,10 +74,7 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 
 **根因：** LINE 桌面版的通話音訊走 macOS 虛擬音訊裝置（HAL plug-in），不是標準的視窗音訊輸出。ScreenCaptureKit 無法擷取此類音訊。這是 macOS Core Audio HAL 層級限制，非程式碼問題。
 
-**可能解法（未來）：**
-- BlackHole 虛擬音訊裝置做 loopback 擷取
-- 系統層級音訊擷取（需更高權限）
-- 建議使用者改用 LINE 網頁版（Chrome）進行通話
+**解法：** 見下方 v4.5 BlackHole 整合方案。
 
 ### 系統檢查結果（7/7 通過）
 
@@ -117,6 +114,55 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 - [ ] UsageExample.swift 拆分（~950 行）
 - [ ] Tests 整合到 Xcode Test Target
 
+### v4.5 — BlackHole 虛擬音訊整合（支援 LINE/WhatsApp 桌面版）
+
+> **目的：** 解決 ScreenCaptureKit 無法擷取 LINE/WhatsApp 等走 HAL 虛擬音訊裝置的 App 問題
+> **複雜度：低（~2 小時）** | **優先級：可選進階功能**
+
+#### 使用者端一次性設定
+1. 安裝 BlackHole：`brew install blackhole-2ch`
+2. 開啟 macOS Audio MIDI Setup（音訊 MIDI 設定）
+3. 建立「Multi-Output Device」— 綁定 BlackHole + 喇叭/耳機
+4. 系統音訊輸出設為 Multi-Output Device
+5. （之後所有系統音訊同時送到喇叭 + BlackHole）
+
+#### 程式端改動
+
+| 任務 | 檔案 | 難度 | 時間 |
+|------|------|------|------|
+| BlackHole 裝置偵測 | Sources/BlackHoleAudioEngine.swift（新增） | 低 | 30 min |
+| AVAudioEngine 從 BlackHole 讀取音訊 | Sources/BlackHoleAudioEngine.swift | 低 | 30 min |
+| Pipeline fallback 邏輯（ScreenCaptureKit 失敗 → BlackHole） | Sources/TranscriptPipeline.swift | 低 | 30 min |
+| UI 加入音訊來源選項（自動 / ScreenCaptureKit / BlackHole） | TranscriptOnly/TranscriptOnlyView.swift | 低 | 30 min |
+| 使用者引導設定文件 + SystemCheck 加入 BlackHole 偵測 | docs + SystemCheckSheet.swift | 低 | 30 min |
+
+#### 核心程式碼概念
+```swift
+// BlackHoleAudioEngine.swift — 偵測 + 讀取 BlackHole 裝置
+let devices = AVAudioEngine().inputNode
+// 1. 列舉所有音訊輸入裝置
+// 2. 找到名稱含 "BlackHole" 的裝置
+// 3. 設為 AVAudioEngine inputNode 的音訊來源
+// 4. 輸出 PCM buffer → Apple Speech recognitionRequest.append()
+```
+
+#### 音訊擷取方式比較
+
+| 方式 | 優點 | 缺點 |
+|------|------|------|
+| ScreenCaptureKit（現有） | 精準擷取單一 App 音訊，零設定 | LINE/WhatsApp 等 HAL 裝置不支援 |
+| BlackHole Loopback（新增） | 能擷取所有系統音訊，包含 LINE/WhatsApp | 需使用者安裝設定，會混入通知聲/音樂等雜訊 |
+
+#### Fallback 策略
+```
+啟動流程：
+1. 嘗試 ScreenCaptureKit 擷取目標 App 音訊
+2. 如果成功 → 使用 ScreenCaptureKit（最佳品質）
+3. 如果失敗（如 LINE HAL 錯誤）→ 偵測 BlackHole 裝置
+4. 如果 BlackHole 存在 → 自動切換到 BlackHole 擷取
+5. 如果 BlackHole 不存在 → 提示使用者安裝 BlackHole 或改用 Chrome 版
+```
+
 ---
 
 ## ⚠️ 已知問題 / 技術債
@@ -129,6 +175,7 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 - [ ] LINE Desktop 音訊走 HAL 虛擬裝置 → ScreenCaptureKit 無法擷取
 - [ ] WhatsApp Desktop 可能有相同限制（待測試確認）
 - [ ] 建議使用者使用 Chrome 網頁版通話作為替代方案
+- [ ] v4.5 BlackHole 整合可解決此問題（可選進階功能）
 
 ### 工程
 - [ ] UsageExample.swift 過大（~950 行）
@@ -143,7 +190,7 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 - [ ] Speaker Diarization（面對面會議）
 - [ ] WhisperKit 離線語音辨識
 - [ ] Action Item 自動擷取 → Notion/Calendar
-- [ ] BlackHole loopback 擷取（支援 LINE/WhatsApp 桌面版）
+- [ ] 進階音訊處理（噪音過濾、回音消除）
 
 ### v5.x — Enterprise
 - [ ] 私有模型部署 / Azure OpenAI
