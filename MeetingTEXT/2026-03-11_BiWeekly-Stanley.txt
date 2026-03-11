@@ -10,7 +10,7 @@ language=zh-TW
 [SOURCES]
 notion_page_id=320f154a-6472-815c-8ad0-c214783dfe22
 notion_page_url=https://www.notion.so/PreMeeting-BiWeekly-Stanley-11-Mar-2026-320f154a6472815c8ad0c214783dfe22
-notebooklm_notebook_id=
+notebooklm_notebook_id=ccaeee5e-8971-49e1-801d-2989ded2c61b
 notebooklm_bridge_url=http://localhost:3210
 
 [GOALS]
