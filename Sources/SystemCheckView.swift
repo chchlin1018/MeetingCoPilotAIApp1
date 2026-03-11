@@ -275,6 +275,7 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(5, .testing)
         let start = Date()
         
+        // FIX: KeychainManager is an enum with static methods, not a class with .shared
         guard let apiKey = KeychainManager.load(key: .claudeAPIKey),
               !apiKey.isEmpty else {
             updateStatus(5, .failed, detail: "Claude API Key 未設定。請在 App 設定頁面填入")
@@ -321,6 +322,7 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(6, .testing)
         let start = Date()
         
+        // FIX: KeychainManager is an enum with static methods, not a class with .shared
         guard let apiKey = KeychainManager.load(key: .notionAPIKey),
               !apiKey.isEmpty else {
             updateStatus(6, .skipped, detail: "Notion API Key 未設定（選填）")
@@ -367,6 +369,7 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(7, .testing)
         let start = Date()
         
+        // FIX: KeychainManager is an enum with static methods, not a class with .shared
         let bridgeURL = KeychainManager.load(key: .notebookLMBridgeURL) ?? "http://localhost:3210"
         
         guard let url = URL(string: "\(bridgeURL)/health") else {
@@ -388,7 +391,6 @@ class SystemCheckViewModel: ObservableObject {
             }
         } catch {
             let latency = Int(Date().timeIntervalSince(start) * 1000)
-            // FIX: replaced invalid \uff09 unicode escape with actual fullwidth parenthesis character
             updateStatus(7, .skipped, detail: "Bridge 未啟動（選填，\(bridgeURL)）", latency: latency)
         }
     }
