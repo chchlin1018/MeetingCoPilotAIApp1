@@ -1,5 +1,5 @@
 # MeetingCopilot 會前準備檔案
-# BiWeekly with Stanley - 11 Mar 2026
+# BiWeekly with Stanley - 11 Mar 2026 (Updated)
 
 [MEETING]
 title=BiWeekly-Stanley-11Mar26
@@ -14,87 +14,107 @@ notebooklm_notebook_id=ccaeee5e-8971-49e1-801d-2989ded2c61b
 notebooklm_bridge_url=http://localhost:3210
 
 [GOALS]
-MBI Utitech 案進度更新：TECO M&A 接洽 / William 20% treasury stock / Bred+Sean 36% LOI
-確認 Johor DC 專案下一步：水處理 + NVIDIA/TECO Digital Twin 連結
-YTEC 先進封裝設備 Penang 合作接洽進度
-BC/UB Penang Remote Support POC 狀態確認
+★ MBI Utitech M&A 最新策略確認：TECO 條件談判 / Abico 通道 / 51% 置換時程
+Lillian (Gamuda) 回信策略：訪台時間 mid-APR/mid-May + 顧問模式 vs 自行接洽
+John 再生水設備專案：Vendor ready → 如何推進 + 新加坡碰面安排
 iVP/TCA 資本參與 MBI Utitech 可能性討論
-★ Lillian Lung (Gamuda) 回覆討論：HTFA 入會流程 + 4月訪台安排 + 回信確認
+YTEC 先進封裝設備 Penang 合作接洽進度
 
 [ATTENDEES]
-Stanley - Partner, iVP/TCA
+Stanley Chin - Partner, iVP/TCA
 Michael Lin - CEO, Reality Matrix / MacroVision
 
 [QA_MY_QUESTIONS]
 # 我方主動提問
 
-Q: TECO M&A head Jason 那邊有沒有新的 feedback？
-K: TECO, Jason, M&A, Utitech, 併購
-A: 了解 TECO 內部決策進度，判斷是否需要加速推進
+Q: Lillian 3/6 回信怎麼回覆？建議 mid/late April 或 mid-May 訪台比較好？
+K: Lillian, Gamuda, 訪台, 時間, April, May
+A: Lillian 說 4 月要來台灣。Stanley 建議 mid/late APR 或 mid-May 可能更好。需確認 Stanley 意見。
 
-Q: iVP/TCA 資本參與 MBI Utitech 的意願和時程？
-K: iVP, TCA, 資本, 投資, Utitech
-A: 確認 Stanley 的資本可以何時加入，與 TECO 如何協調
+Q: Gamuda 的 consultancy 合作模式怎麼處理？或者讓他們自己來就好？
+K: Gamuda, consultancy, 顧問, HTFA, engagement
+A: Stanley 提到可以用顧問模式 or 讓 Gamuda 自己走。HTFA 官網有入會資訊可以分享給 Lillian。確認 Stanley 偏好哪種。
 
-Q: Johor DC 專案 John 那邊有沒有新的水處理需求明確？
-K: Johor, DC, 水處理, John, 需求
-A: 釘清我們在 deal 中的角色和商業模式
+Q: TECO M&A 條件談到什麼程度了？Vice-chairman 和 GM 的態度？
+K: TECO, Vice-chairman, GM, 條件, terms, M&A
+A: Michael 最近在和 TECO 副董事長及子公司 GM 談條件。確認 Stanley 對 TECO 條款有沒有額外意見。
 
-Q: Lillian 3/6 回信要怎麼回覆？HTFA 入會流程和 4月訪台安排？
-K: Lillian, Gamuda, Silicon Island, HTFA, 入會, 訪台
-A: 確認 Stanley 同意回覆內容：HTFA 入會由 Michael 提交申請、4月訪台安排哪些會面、是否 CC Stanley
+Q: Abico 先買 20-22% 再轉手 TECO 的通道風險？Abico 留 10-15% 的定位？
+K: Abico, 通道, 買入, 轉手, TECO, 風險
+A: 確認這個交易結構的法律和操作風險。Abico 在重組後的角色定位。
 
-Q: Gamuda agency engagement 的商業模式怎麼定？
-K: Gamuda, agency, engagement, 顧問, 合作
-A: Michael 作為台灣代理/顧問的 engagement basis、費用結構、與 Stanley 角色分工
+Q: John 再生水設備 Vendor 已準備好，下一步怎麼走？
+K: John, 再生水, 水處理, Vendor, 設備, recycled water
+A: Vendor ready to go。需 John 的 advice 怎麼推進。是否 APR/May 在新加坡碰面？同時見 SG 的 DC operators。
 
 Q: YTEC Mr. Hsiao 見面有沒有排定？
 K: YTEC, Hsiao, 封裝設備, Penang
-A: 確認 3月見面時程和議程
+A: 確認 3 月見面時程和議程
 
 [QA_THEIR_QUESTIONS]
 # Stanley 可能提問
 
-Q: Utitech 的 valuation 和入股條件是什麼？
-K: Utitech, valuation, 入股, 條件, 股價
-A: 20% treasury stock 由全體股東決議。另 36% 分散股東（Bred 12%, Sean 6%, Otto 5%）可談 LOI。Chairman William 24%
+Q: Utitech 股權重組最新結構是什麼？
+K: Utitech, 股權, 結構, 重組, TECO, Abico
+A: 20% treasury shares（UTT 旗下投資公司持有）→ TECO 取得。30-31% 個人股東（Bred 12%, Sean 6%, 其他）→ TECO 完成 20% 後可簽 LOI。Abico 先買 20-22% → 轉賣部分給 TECO → Abico 保留 10-15%。達 51% 後置換經營權 → 預期再取得額外 20% 股權。
 
 Q: TECO 為什麼有興趣併購 Utitech？
 K: TECO, 併購, 動機, 工業軟體
 A: TECO 積極擴展 DC + 工業平台，已投資 MetAI(USD 6M)，已併購 NCL Energy(ML DC)。Utitech 作為 Industrial Software 平台重組
 
-Q: MetAI 和 Digital Twin Alliance 的最新狀況？
-K: MetAI, Digital Twin, Alliance, HTFA, NVIDIA, TSMC
-A: TSMC 已簽 NT$100M PO，Micron 將在 1H2026 簽約。MetAI valuation USD 70M+。NVIDIA Jackson 計畫擴展到 DC 標準
+Q: John 的水處理案新加坡那邊有什麼 DC operator 可以見？
+K: John, 新加坡, DC operator, 水處理, SG
+A: John 上次提到 SG 有 DC operators 可見面。APR/May meetup 同時處理再生水設備 + DC operator 介紹。
+
+Q: Lillian 的回覆你打算怎麼寫？
+K: Lillian, 回覆, 郵件, draft
+A: 已草擬 draft（CC Stanley + Immanuel Tan）。提及 HTFA 入會、訪台時間建議 mid-APR 或 mid-May、structured support 暗示顧問模式。待 Stanley 確認後發送。
 
 Q: 水處理廠商找到了嗎？
 K: 水處理, Mega Union, 台灣, 設備
 A: 已找到 Mega Union（台灣 IPO 公司，TSMC/UMC/ASE 客戶），新加坡有分公司。已是 AVEVA SI partner with Utitech
-
-Q: BC/UB Penang POC 進度如何？
-K: BC, UB, Penang, POC, EDGE, ICPDAS
-A: EDGE 端用 ICPDAS（AVV Partner），Control Room 用 Utitech。待確認 POC 成本和時程
 
 Q: Kulai Johor DC 專案怎麼跟 NVIDIA/TECO 連結？
 K: Kulai, Johor, DC, NVIDIA, TECO, Digital Twin
 A: 透過 HTFA + Digital Twin Alliance 連結。MetAI 標準可用於 DC Design/Build/Operate。TECO 有 DC 經驗(Google partner)
 
 [TP]
-MUST|MBI Utitech 進度更新|TECO Teresa→Jason M&A; William 20% treasury; Bred+Sean 36% LOI 目標 3月|Utitech, TECO, M&A, 併購, 股權
-MUST|iVP/TCA 資本參與時程|確認 Stanley 資本加入 MBI 的時機和條件|iVP, TCA, 資本, 投資, MBI
-MUST|Johor DC + 水處理下一步|John 需求明確 + Mega Union 導入 + 我們角色定義|Johor, DC, 水處理, John, Mega Union
-SHOULD|★ Lillian/Gamuda 回覆確認|3/6 Lillian 回信：想加入 HTFA + 4月訪台。Draft 已備好，需 Stanley 確認內容|Lillian, Gamuda, Silicon Island, HTFA, 訪台, 回覆
+MUST|★ MBI Utitech M&A 策略更新|TECO engaged：Michael 與副董事長+子公司GM 談條件中。結構：20% treasury(UTT投資公司)→TECO。Abico先買20-22%→轉手TECO→Abico留10-15%。個人股東30-31%：TECO拿到20%後可簽LOI。達51%後置換經營權+預期額外20%|Utitech, TECO, Abico, M&A, 股權, 併購
+MUST|★ Lillian/Gamuda 回信策略|訪台時間：建議 mid/late APR 或 mid-May。合作模式：consultancy engagement or 讓 Gamuda 自行接洽？HTFA 官網有入會資訊。Draft 已備好 CC Stanley+Immanuel|Lillian, Gamuda, HTFA, 訪台, 顧問, consultancy
+MUST|★ John 再生水設備專案|Vendor ready to go，需 John advice 如何推進。提議 APR/May 新加坡碰面：同時處理水設備 + 見 SG DC operators（John 上次提到的）|John, 再生水, 水處理, Vendor, 新加坡, DC operator
+SHOULD|iVP/TCA 資本參與時程|確認 Stanley 資本加入 MBI 的時機和條件|iVP, TCA, 資本, 投資, MBI
 SHOULD|YTEC Penang 合作排程|3月見 VP Hsiao + Chairman Wang; Penang 封裝設備銷售|YTEC, Hsiao, Wang, Penang, 封裝
 SHOULD|MetAI/Digital Twin Alliance 更新|TSMC NT$100M PO; Micron 1H2026; NVIDIA Jackson DC 標準擴展|MetAI, TSMC, Micron, NVIDIA, Digital Twin
-SHOULD|BC/UB Penang POC 狀態|EDGE:ICPDAS + Control Room:Utitech; 待確認成本|BC, UB, Penang, POC, ICPDAS
+NICE|BC/UB Penang POC 狀態|EDGE:ICPDAS + Control Room:Utitech; 待確認成本|BC, UB, Penang, POC, ICPDAS
 NICE|Dr YT Chin / Silicon Connect|YTEC 合併討論; ML Adv Training R&D Center|YT Chin, Silicon Connect, YTEC
 
 [PREANALYSIS]
-上次會議 0214 後的主要進展：
-1. TECO: Michael 已見 Teresa（報告副董事長），下一步提交給 M&A head Jason。
-2. Utitech: CFO Bred + VP Sean 已談好 3月內部推進策略。
-3. Mega Union: 已找到台灣水處理 IPO 公司，新加坡有分公司。
-4. YTEC: Robert 已見面，確認 Penang 已有客戶，可討論合作。
-5. MetAI: TSMC NT$100M PO, Micron 1H2026, valuation USD 70M+。
-★ 6. Lillian Lung (Gamuda ED) 3/6 回信：想參與台灣半導體生態系、詢問 HTFA 入會流程、計畫 4月訪台、附 Silicon Island 簡報 PDF。已草擬回覆 draft（CC Stanley + Immanuel Tan），待會議確認後發送。
-策略重點：3-4月 Michael 將專注 MBI Utitech + TECO 平台建構，需要確認 iVP/Stanley 資本加入時機。
+★ 本次會議三大重點（Michael 0311 筆記）：
+
+1. MBI Utitech M&A — TECO 已 engaged
+   - Michael 最近與 TECO 副董事長 + 子公司 GM 談條件中
+   - 交易結構：Abico 先買 20-22% → 部分轉手 TECO → Abico 保留 10-15%
+   - 20% treasury shares（UTT 旗下投資公司持有）→ TECO 取得
+   - 30-31% 個人股東：TECO 拿到 20% 後可簽 LOI
+   - 達 51% 後置換經營權，預期再取得額外 20%
+   - 需確認 iVP/Stanley 資本加入時機
+
+2. Lillian (Gamuda) 回信策略
+   - Lillian 3/6 回信：想加入 HTFA + 4月訪台 + 附 Silicon Island 簡報 PDF
+   - Stanley 建議：mid/late APR 或 mid-May 訪台較好
+   - 合作模式選擇：consultancy engagement vs 讓 Gamuda 自行接洽
+   - HTFA 官網有入會流程資訊可直接分享
+   - Draft 已備好（CC Stanley + Immanuel Tan），待確認後發送
+
+3. John 再生水設備專案
+   - Vendor 已 ready to go
+   - 需要 John 的 advice 決定如何推進
+   - 提議 APR/May 新加坡碰面：
+     a) 處理再生水設備採購/導入
+     b) 見 SG DC operators（John 上次提到的）
+
+背景進展（自 0214 後）：
+- TECO: Teresa 介紹 → Jason M&A head; Michael 已進入條件談判階段
+- Mega Union: 台灣水處理 IPO 公司（TSMC/UMC/ASE 客戶），SG 有分公司
+- MetAI: TSMC NT$100M PO, Micron 1H2026, valuation USD 70M+
+- YTEC: Robert 已見面，Penang 已有客戶
