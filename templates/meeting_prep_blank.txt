@@ -1,0 +1,34 @@
+# MeetingCopilot 會前準備（空白模板）
+# 用文字編輯器填寫，儲存 UTF-8 .txt，在 App 點「讀取」載入
+
+[MEETING]
+title=
+type=Sales Proposal
+duration=60
+language=zh-TW
+
+[SOURCES]
+notion_page_id=
+notion_page_url=
+notebooklm_notebook_id=
+notebooklm_bridge_url=http://localhost:3210
+
+[GOALS]
+
+[ATTENDEES]
+
+[QA]
+Q: 
+K: 
+A: 
+
+[TP]
+MUST|||
+SHOULD|||
+NICE|||
+
+[STRATEGY]
+
+[PREANALYSIS]
+
+[DOCUMENTS]
