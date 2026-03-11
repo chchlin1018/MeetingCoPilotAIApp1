@@ -275,7 +275,7 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(5, .testing)
         let start = Date()
         
-        guard let apiKey = KeychainManager.shared.retrieve(key: "claude_api_key"),
+        guard let apiKey = KeychainManager.load(key: .claudeAPIKey),
               !apiKey.isEmpty else {
             updateStatus(5, .failed, detail: "Claude API Key 未設定。請在 App 設定頁面填入")
             return
@@ -321,7 +321,7 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(6, .testing)
         let start = Date()
         
-        guard let apiKey = KeychainManager.shared.retrieve(key: "notion_api_key"),
+        guard let apiKey = KeychainManager.load(key: .notionAPIKey),
               !apiKey.isEmpty else {
             updateStatus(6, .skipped, detail: "Notion API Key 未設定（選填）")
             return
@@ -367,7 +367,7 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(7, .testing)
         let start = Date()
         
-        let bridgeURL = KeychainManager.shared.retrieve(key: "notebooklm_bridge_url") ?? "http://localhost:3210"
+        let bridgeURL = KeychainManager.load(key: .notebookLMBridgeURL) ?? "http://localhost:3210"
         
         guard let url = URL(string: "\(bridgeURL)/health") else {
             updateStatus(7, .failed, detail: "Bridge URL 無效")
