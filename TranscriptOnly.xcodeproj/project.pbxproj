@@ -14,6 +14,7 @@
 		AA1000000000000000000005 /* MicrophoneCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000005; };
 		AA1000000000000000000006 /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000006; };
 		AA1000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000007; };
+		AA1000000000000000000008 /* SystemCheckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000B; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 		AA2000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA2000000000000000000009 /* TranscriptOnly.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TranscriptOnly.entitlements; sourceTree = "<group>"; };
 		AA200000000000000000000A /* TranscriptOnly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TranscriptOnly.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA200000000000000000000B /* SystemCheckSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCheckSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +56,7 @@
 			children = (
 				AA2000000000000000000001,
 				AA2000000000000000000002,
+				AA200000000000000000000B,
 				AA2000000000000000000007,
 				AA2000000000000000000008,
 				AA2000000000000000000009,
@@ -152,6 +155,7 @@
 			files = (
 				AA1000000000000000000001,
 				AA1000000000000000000002,
+				AA1000000000000000000008,
 				AA1000000000000000000003,
 				AA1000000000000000000004,
 				AA1000000000000000000005,
