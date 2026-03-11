@@ -1,6 +1,6 @@
 // UsageExample.swift
-// MeetingCopilot v4.3 — SwiftUI Main View
-// Updated: Audio health notifications in header bar + Live partial transcript
+// MeetingCopilot v4.3.1 — SwiftUI Main View
+// Updated: Larger fonts + First TP in teleprompter
 
 import SwiftUI
 import AppKit
@@ -411,7 +411,6 @@ struct MeetingTeleprompterView: View {
         let lStatus = health.localStatus()
 
         return HStack(spacing: 6) {
-            // 對方串流
             HStack(spacing: 2) {
                 streamDot(rStatus)
                 Text("對方").font(.system(size: 9)).foregroundColor(streamColor(rStatus))
@@ -420,7 +419,6 @@ struct MeetingTeleprompterView: View {
                         .foregroundColor(.gray.opacity(0.4))
                 }
             }
-            // 我方串流
             HStack(spacing: 2) {
                 streamDot(lStatus)
                 Text("我方").font(.system(size: 9)).foregroundColor(streamColor(lStatus))
@@ -438,25 +436,15 @@ struct MeetingTeleprompterView: View {
     @ViewBuilder
     private func streamDot(_ status: AudioHealthStatus.StreamStatus) -> some View {
         switch status {
-        case .active:
-            Circle().fill(Color.green).frame(width: 5, height: 5)
-        case .idle:
-            Circle().fill(Color.yellow).frame(width: 5, height: 5)
-        case .disconnected:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 7)).foregroundColor(.red)
-        case .notStarted:
-            Circle().fill(Color.gray.opacity(0.4)).frame(width: 5, height: 5)
+        case .active: Circle().fill(Color.green).frame(width: 5, height: 5)
+        case .idle: Circle().fill(Color.yellow).frame(width: 5, height: 5)
+        case .disconnected: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 7)).foregroundColor(.red)
+        case .notStarted: Circle().fill(Color.gray.opacity(0.4)).frame(width: 5, height: 5)
         }
     }
 
     private func streamColor(_ status: AudioHealthStatus.StreamStatus) -> Color {
-        switch status {
-        case .active: return .green
-        case .idle: return .yellow
-        case .disconnected: return .red
-        case .notStarted: return .gray
-        }
+        switch status { case .active: return .green; case .idle: return .yellow; case .disconnected: return .red; case .notStarted: return .gray }
     }
 
     private func streamBadgeBackground(_ r: AudioHealthStatus.StreamStatus, _ l: AudioHealthStatus.StreamStatus) -> Color {
@@ -467,8 +455,7 @@ struct MeetingTeleprompterView: View {
 
     private var notebookLMStatusBadge: some View {
         HStack(spacing: 4) {
-            Circle().fill(coordinator.isNotebookLMAvailable ? Color.teal : Color.gray.opacity(0.5))
-                .frame(width: 6, height: 6)
+            Circle().fill(coordinator.isNotebookLMAvailable ? Color.teal : Color.gray.opacity(0.5)).frame(width: 6, height: 6)
             if coordinator.isNotebookLMQuerying {
                 ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
                 Text("RAG...").font(.system(size: 10)).foregroundColor(.teal)
@@ -495,7 +482,7 @@ struct MeetingTeleprompterView: View {
         }.padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.1)).cornerRadius(4)
     }
 
-    // MARK: ★ Transcript Panel（含即時 Partial Results）
+    // MARK: ★ Transcript Panel — 字體放大
 
     private var transcriptPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -515,32 +502,32 @@ struct MeetingTeleprompterView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         if coordinator.transcriptEntries.isEmpty && !isSessionActive {
-                            Text("等待會議音訊...").font(.system(size: 13)).foregroundColor(.gray.opacity(0.4))
+                            Text("等待會議音訊...").font(.system(size: 16)).foregroundColor(.gray.opacity(0.4))
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                         } else if coordinator.transcriptEntries.isEmpty && isSessionActive {
-                            Text("正在聆聽...").font(.system(size: 13)).foregroundColor(.gray.opacity(0.4))
+                            Text("正在聆聽...").font(.system(size: 16)).foregroundColor(.gray.opacity(0.4))
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                         }
 
-                        // 已確認的逐字稿（isFinal entries）
-                        LazyVStack(alignment: .leading, spacing: 4) {
+                        // 已確認的逐字稿（isFinal entries）— ★ 字體 16pt
+                        LazyVStack(alignment: .leading, spacing: 6) {
                             ForEach(coordinator.transcriptEntries) { entry in
                                 TranscriptEntryRow(entry: entry, isDualStream: coordinator.hasDualStream).id(entry.id)
                             }
                         }.padding(.horizontal, 12)
 
-                        // ★ 即時 Partial Results 顯示（未 final 的文字）
+                        // ★ 即時 Partial Results — 字體 15pt
                         if isSessionActive && !coordinator.recentTranscript.isEmpty {
                             let isLocal = coordinator.recentTranscript.contains("[我方]")
                             let partialColor: Color = isLocal ? .yellow : .cyan
                             HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: "waveform")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12))
                                     .foregroundColor(partialColor.opacity(0.6))
                                 Text(coordinator.recentTranscript)
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(.system(size: 15, design: .monospaced))
                                     .foregroundColor(partialColor.opacity(0.6))
-                                    .lineLimit(2)
+                                    .lineLimit(3)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 6)
                             .id("live-partial")
@@ -559,7 +546,7 @@ struct MeetingTeleprompterView: View {
         }.background(Color(hex: "0D0D14"))
     }
 
-    // MARK: Teleprompter / Sidebar
+    // MARK: ★ Teleprompter Panel — 開場顯示第一個 TP
 
     private var teleprompterPanel: some View {
         VStack(spacing: 0) {
@@ -574,6 +561,62 @@ struct MeetingTeleprompterView: View {
                         Image(systemName: "sparkles").font(.system(size: 32)).foregroundColor(.purple.opacity(0.3))
                         Text("點擊「準備會議」開始").font(.system(size: 14)).foregroundColor(.gray)
                     }.frame(maxWidth: .infinity).padding(.top, 100)
+                } else if coordinator.cards.isEmpty && isSessionActive {
+                    // ★ 會議開始但尚無 AI 卡片 → 顯示第一個 MUST TP 作為提示
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let firstMust = coordinator.talkingPoints.first(where: { $0.priority == .must && $0.status == .pending }) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 6) {
+                                    Text("MUST").font(.system(size: 11, weight: .heavy, design: .monospaced))
+                                        .foregroundColor(.red)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Color.red.opacity(0.15)).cornerRadius(4)
+                                    Text("下一個重點").font(.system(size: 12)).foregroundColor(.gray)
+                                }
+                                Text(firstMust.content)
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(4)
+                                if let data = firstMust.supportingData {
+                                    Text(data)
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.gray.opacity(0.7))
+                                        .lineLimit(3)
+                                }
+                            }
+                            .padding(16)
+                            .background(Color.red.opacity(0.06))
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.2), lineWidth: 1))
+                        }
+
+                        // 其他待講的 TP 清單
+                        let pendingTPs = coordinator.talkingPoints.filter { $0.status == .pending }
+                        if pendingTPs.count > 1 {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("待講重點").font(.system(size: 11, weight: .bold)).foregroundColor(.gray)
+                                ForEach(pendingTPs.prefix(5)) { tp in
+                                    HStack(spacing: 6) {
+                                        Text(tp.priority.rawValue)
+                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                            .foregroundColor(tp.priority == .must ? .red : tp.priority == .should ? .yellow : .gray)
+                                        Text(tp.content)
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(Color.white.opacity(0.03))
+                            .cornerRadius(8)
+                        }
+
+                        Text("等待對方提問，AI 將即時回應...")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray.opacity(0.4))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }.padding(16)
                 } else {
                     LazyVStack(spacing: 8) {
                         ForEach(coordinator.cards) { card in AICardView(card: card) }
@@ -702,18 +745,18 @@ struct MeetingTeleprompterView: View {
     }
 }
 
-// MARK: - Transcript Entry Row — ★ 對方=青色 我方=黃色
+// MARK: - Transcript Entry Row — ★ 字體 16pt，對方=青色 我方=黃色
 struct TranscriptEntryRow: View {
     let entry: TranscriptEntry; let isDualStream: Bool
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             if isDualStream {
-                Text(entry.speakerLabel).font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(speakerColor.opacity(0.7)).frame(width: 24).padding(.top, 2)
+                Text(entry.speakerLabel).font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(speakerColor.opacity(0.7)).frame(width: 28).padding(.top, 2)
                 RoundedRectangle(cornerRadius: 1).fill(speakerColor.opacity(0.4)).frame(width: 2)
             }
-            Text(entry.text).font(.system(size: 13)).foregroundColor(textColor).frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(.vertical, 2)
+            Text(entry.text).font(.system(size: 16)).foregroundColor(textColor).frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(.vertical, 3)
     }
     private var speakerColor: Color { entry.speaker == .remote ? .cyan : .yellow }
     private var textColor: Color { entry.speaker == .remote ? .cyan.opacity(0.85) : .yellow.opacity(0.8) }
@@ -778,13 +821,13 @@ struct AICardView: View {
     let card: AICard
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack { Text(card.title).font(.system(size: 12, weight: .bold)).foregroundColor(titleColor).lineLimit(1); Spacer()
+            HStack { Text(card.title).font(.system(size: 14, weight: .bold)).foregroundColor(titleColor).lineLimit(1); Spacer()
                 HStack(spacing: 8) {
                     Text("\(String(format: "%.0f", card.latencyMs))ms").font(.system(size: 10, design: .monospaced)).foregroundColor(.gray)
                     Text("\(String(format: "%.0f", card.confidence * 100))%").font(.system(size: 10, design: .monospaced)).foregroundColor(card.confidence > 0.9 ? .green : .yellow)
                 } }
-            Text(card.content).font(.system(size: 13)).foregroundColor(.white.opacity(0.9)).lineLimit(6)
-        }.padding(12).background(cardBg).cornerRadius(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 1))
+            Text(card.content).font(.system(size: 16)).foregroundColor(.white.opacity(0.9)).lineLimit(8)
+        }.padding(14).background(cardBg).cornerRadius(8).overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 1))
     }
     private var titleColor: Color { switch card.type { case .qaMatch: return .cyan; case .aiGenerated: return .purple; case .strategy: return .orange; case .warning: return .yellow } }
     private var borderColor: Color { titleColor.opacity(0.3) }
