@@ -1,14 +1,14 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // AudioCaptureEngine.swift
-// MeetingCopilot v4.0 — Core Audio Capture Protocol & Types
+// MeetingCopilot v4.3.1 — Core Audio Capture Protocol & Types
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // 定義統一的音訊擷取介面，讓 SystemAudioCaptureEngine（主引擎）和
 // MicrophoneCaptureEngine（降級方案）都實作同一個 Protocol。
-// 這是 v4.0 插件化架構的基礎。
 //
 // Platform: macOS 14.0+
 // Framework: ScreenCaptureKit, AVFoundation, Speech
+// Supported Apps: 11 (Teams/Zoom/Meet/Webex/Slack/LINE/WhatsApp/Telegram/Discord/FaceTime)
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -41,7 +41,7 @@ protocol AudioCaptureEngine: AnyObject {
 // MARK: - 引擎類型
 
 enum AudioCaptureEngineType: String, Sendable {
-    case systemAudio = "ScreenCaptureKit"   // 主引擎：擷取 Teams/Zoom/Meet 系統音訊
+    case systemAudio = "ScreenCaptureKit"   // 主引擎：擷取系統音訊
     case microphone  = "Microphone"          // 降級方案：擷取麥克風
 }
 
@@ -73,9 +73,9 @@ enum AudioCaptureError: Error, LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "需要螢幕錄製權限才能擷取會議音訊。請在系統設定中授權 MeetingCopilot。"
+            return "需要螢幕錄製權限才能擷取會議音訊。請在系統設定中授權。"
         case .noAudioSourceFound:
-            return "找不到正在播放音訊的會議應用程式。請確認 Teams/Zoom/Meet 正在進行會議。"
+            return "找不到正在播放音訊的應用程式。請確認 Teams/Zoom/Meet/LINE/WhatsApp/FaceTime 正在通話中。"
         case .speechRecognizerUnavailable:
             return "語音辨識服務目前不可用。請確認網路連線正常。"
         case .engineStartFailed(let detail):
@@ -104,14 +104,22 @@ struct TranscriptSegment: Sendable, Identifiable {
     }
 }
 
-// MARK: - 會議應用程式識別
+// MARK: - 會議/通話應用程式識別（11 個 App）
 
 enum MeetingApp: String, CaseIterable, Sendable {
+    // ── 會議軟體 ──
     case microsoftTeams = "com.microsoft.teams2"
     case zoom           = "us.zoom.xos"
     case googleMeet     = "com.google.Chrome"
     case webex          = "com.cisco.webexmeetingsapp"
     case slack          = "com.tinyspeck.slackmacgap"
+    // ── 通訊軟體 ──
+    case line           = "jp.naver.line.mac"
+    case whatsapp       = "net.whatsapp.WhatsApp"
+    case whatsappNative = "WhatsApp"                    // App Store 原生版
+    case telegram       = "ru.keepcoder.Telegram"
+    case discord        = "com.hnc.Discord"
+    case facetime       = "com.apple.FaceTime"
     
     var bundleIdentifier: String { rawValue }
     
@@ -122,6 +130,12 @@ enum MeetingApp: String, CaseIterable, Sendable {
         case .googleMeet:     return "Google Meet (Chrome)"
         case .webex:          return "Webex"
         case .slack:          return "Slack"
+        case .line:           return "LINE"
+        case .whatsapp:       return "WhatsApp"
+        case .whatsappNative: return "WhatsApp (Native)"
+        case .telegram:       return "Telegram"
+        case .discord:        return "Discord"
+        case .facetime:       return "FaceTime"
         }
     }
     
