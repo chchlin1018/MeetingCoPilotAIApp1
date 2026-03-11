@@ -1,5 +1,5 @@
 // SystemAudioCaptureEngine.swift
-// MeetingCopilot v4.2 — Primary: ScreenCaptureKit System Audio Capture
+// MeetingCopilot v4.3.1 — Primary: ScreenCaptureKit System Audio Capture
 // Fixed: Actor isolation for Swift Strict Concurrency
 
 import Foundation
@@ -42,6 +42,12 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     private var detectedMeetingApp: MeetingApp?
     private var audioConverter: AVAudioConverter?
     private var speechFormat: AVAudioFormat?
+    
+    // MARK: - ★ Public: 偵測到的 App 名稱
+    
+    var detectedAppName: String? {
+        detectedMeetingApp?.displayName
+    }
     
     // MARK: - Init
     
@@ -130,7 +136,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         try await captureStream.startCapture()
         
         _state = .capturing
-        print("SystemAudioCaptureEngine started: \(targetApp.displayName)")
+        print("🎯 SystemAudioCaptureEngine started: \(targetApp.displayName)")
     }
     
     // MARK: - Stop
@@ -184,7 +190,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         if config.autoDetectMeetingApp {
             for app in content.applications {
                 if let meetingApp = MeetingApp.from(bundleID: app.bundleIdentifier) {
-                    print("  Detected: \(meetingApp.displayName)")
+                    print("  📱 Detected: \(meetingApp.displayName) (\(app.bundleIdentifier))")
                     return meetingApp
                 }
             }
@@ -199,7 +205,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
                     for window in content.windows where window.owningApplication?.bundleIdentifier == app.bundleIdentifier {
                         if let title = window.title,
                            (title.contains("Meet") || title.contains("meet.google.com")) {
-                            print("  Detected Google Meet in \(app.applicationName)")
+                            print("  📱 Detected Google Meet in \(app.applicationName)")
                             return .googleMeet
                         }
                     }

@@ -1,6 +1,6 @@
 // TranscriptOnlyView.swift
 // TranscriptOnly — feature/transcript-only
-// 精簡 UI：語言選擇 + 開始/停止 + 分色逐字稿 + Live Partial + Audio Health
+// 精簡 UI：語言選擇 + 開始/停止 + 分色逐字稿 + Live Partial + Audio Health + App Detection
 
 import SwiftUI
 
@@ -63,6 +63,9 @@ final class TranscriptOnlyViewModel {
     var remoteSegmentCount = 0
     var localSegmentCount = 0
     
+    // ★ 偵測到的 App
+    var detectedApp: String = ""
+    
     // --- Pipeline ---
     private var pipeline: TranscriptPipeline?
     private var updateTask: Task<Void, Never>?
@@ -77,25 +80,23 @@ final class TranscriptOnlyViewModel {
         entries.removeAll()
         remotePartial = ""
         localPartial = ""
+        detectedApp = ""
         
         let config = selectedLanguage.audioConfig
         let newPipeline = TranscriptPipeline()
         self.pipeline = newPipeline
         
-        // 啟動 Pipeline
         Task {
             do {
                 try await newPipeline.start(config: config)
                 
-                // 讀取啟動狀態
                 let health = await newPipeline.audioHealth
                 self.startupMessage = health.startupMessage
                 self.isDualStream = await newPipeline.hasDualStream
+                self.detectedApp = health.detectedAppName ?? ""
                 self.isRecording = true
                 
-                // 開始消費 updates
                 self.startUpdateConsumer(pipeline: newPipeline)
-                // 開始健康監控
                 self.startHealthMonitor(pipeline: newPipeline)
                 
             } catch {
@@ -125,6 +126,7 @@ final class TranscriptOnlyViewModel {
         localStatus = .notStarted
         remotePartial = ""
         localPartial = ""
+        detectedApp = ""
     }
     
     // MARK: - Update Consumer
@@ -136,7 +138,6 @@ final class TranscriptOnlyViewModel {
                 guard !Task.isCancelled else { break }
                 guard let self = self else { break }
                 
-                // 更新 partial text
                 switch update.speaker {
                 case .remote:
                     if !update.segment.isFinal {
@@ -152,10 +153,8 @@ final class TranscriptOnlyViewModel {
                     }
                 }
                 
-                // 加入 final entries
                 if update.entry.isFinal && update.entry.text.count > 3 {
                     self.entries.append(update.entry)
-                    // 限制數量
                     if self.entries.count > 500 {
                         self.entries.removeFirst(self.entries.count - 500)
                     }
@@ -190,6 +189,7 @@ final class TranscriptOnlyViewModel {
         # Date: \(Date().formatted())
         # Language: \(selectedLanguage.displayName)
         # Dual Stream: \(isDualStream)
+        # Detected App: \(detectedApp)
         # Entries: \(entries.count)
         
         """
@@ -249,14 +249,12 @@ struct TranscriptOnlyView: View {
     
     private var controlBar: some View {
         HStack(spacing: 16) {
-            // App 名稱
             Text("TranscriptOnly")
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
                 .foregroundStyle(.secondary)
             
             Divider().frame(height: 20)
             
-            // 語言選擇
             Picker("語言", selection: $vm.selectedLanguage) {
                 ForEach(RecognitionLanguage.allCases) { lang in
                     Text(lang.displayName).tag(lang)
@@ -268,12 +266,10 @@ struct TranscriptOnlyView: View {
             
             Spacer()
             
-            // 條目計數
             Text("\(vm.entries.count) 條")
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
             
-            // 匯出
             Button {
                 exportToFile()
             } label: {
@@ -284,7 +280,6 @@ struct TranscriptOnlyView: View {
             .disabled(vm.entries.isEmpty)
             .help("匯出逐字稿 TXT")
             
-            // 清除
             Button {
                 vm.entries.removeAll()
             } label: {
@@ -295,7 +290,6 @@ struct TranscriptOnlyView: View {
             .disabled(vm.entries.isEmpty || vm.isRecording)
             .help("清除逐字稿")
             
-            // 開始/停止
             Button {
                 if vm.isRecording {
                     vm.stopRecording()
@@ -324,31 +318,27 @@ struct TranscriptOnlyView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     
-                    // Final entries
                     ForEach(vm.entries) { entry in
                         transcriptRow(entry)
                             .id(entry.id)
                     }
                     
-                    // Live Partial: remote
                     if vm.isRecording && !vm.remotePartial.isEmpty {
                         partialRow(text: vm.remotePartial, speaker: .remote)
                             .id("partial-remote")
                     }
                     
-                    // Live Partial: local
                     if vm.isRecording && !vm.localPartial.isEmpty {
                         partialRow(text: vm.localPartial, speaker: .local)
                             .id("partial-local")
                     }
                     
-                    // Empty state
                     if vm.entries.isEmpty && !vm.isRecording {
                         VStack(spacing: 12) {
                             Image(systemName: "waveform.badge.mic")
                                 .font(.system(size: 40))
                                 .foregroundStyle(.tertiary)
-                            Text("選擇語言 → 開啟 Zoom/Teams 會議 → 按「開始會議」")
+                            Text("選擇語言 → 開啟 Zoom/Teams/LINE/WhatsApp → 按「開始會議」")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                         }
@@ -372,19 +362,16 @@ struct TranscriptOnlyView: View {
     
     private func transcriptRow(_ entry: TranscriptEntry) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            // 時間
             Text(entry.timestamp.formatted(date: .omitted, time: .standard))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 70, alignment: .trailing)
             
-            // 說話者標籤
             Text(entry.speakerLabel)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(speakerColor(entry.speaker))
                 .frame(width: 32)
             
-            // 文字
             Text(entry.text)
                 .font(.system(size: 16))
                 .foregroundStyle(speakerColor(entry.speaker))
@@ -443,6 +430,21 @@ struct TranscriptOnlyView: View {
                     .cornerRadius(4)
             }
             
+            // ★ 偵測到的 App 顯示
+            if !vm.detectedApp.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "app.connected.to.app.below.fill")
+                        .font(.system(size: 10))
+                    Text(vm.detectedApp)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                }
+                .foregroundStyle(.cyan)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.cyan.opacity(0.15))
+                .cornerRadius(4)
+            }
+            
             Divider().frame(height: 16)
             
             // 音訊狀態
@@ -451,13 +453,11 @@ struct TranscriptOnlyView: View {
             
             Spacer()
             
-            // Auto Scroll
             Toggle("自動捲動", isOn: $autoScroll)
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .font(.system(size: 11))
             
-            // 錯誤訊息
             if let error = vm.errorMessage {
                 Text(error)
                     .font(.system(size: 11))

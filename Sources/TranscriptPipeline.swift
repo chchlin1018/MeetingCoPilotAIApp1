@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // TranscriptPipeline.swift
-// MeetingCopilot v4.3 — 雙串流 + Audio Health Monitoring
+// MeetingCopilot v4.3.1 — 雙串流 + Audio Health + App Detection
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -39,18 +39,19 @@ struct TranscriptUpdate: Sendable {
 // MARK: - ★ Audio Health Status
 
 struct AudioHealthStatus: Sendable {
-    let remoteActive: Bool          // 對方音訊活躍
-    let localActive: Bool           // 我方音訊活躍
-    let remoteLastReceived: Date?   // 最後收到對方音訊的時間
-    let localLastReceived: Date?    // 最後收到我方音訊的時間
+    let remoteActive: Bool
+    let localActive: Bool
+    let remoteLastReceived: Date?
+    let localLastReceived: Date?
     let remoteSegmentCount: Int
     let localSegmentCount: Int
-    let startupMessage: String?     // 啟動通知訊息
+    let startupMessage: String?
+    let detectedAppName: String?    // ★ 偵測到的對方 App 名稱
 
     enum StreamStatus: String, Sendable {
-        case active = "活躍"         // 近 10 秒內有收到音訊
-        case idle = "靜音"           // 10-30 秒無音訊
-        case disconnected = "斷線"   // > 30 秒無音訊
+        case active = "活躍"
+        case idle = "靜音"
+        case disconnected = "斷線"
         case notStarted = "未啟動"
     }
 
@@ -93,6 +94,7 @@ actor TranscriptPipeline {
     private var remoteEngineStarted: Bool = false
     private var localEngineStarted: Bool = false
     private var _startupMessage: String?
+    private var _detectedAppName: String?   // ★ 偵測到的 App
 
     private var systemAudioEngine: SystemAudioCaptureEngine?
     private var microphoneEngine: MicrophoneCaptureEngine?
@@ -117,7 +119,8 @@ actor TranscriptPipeline {
             localLastReceived: localLastReceived,
             remoteSegmentCount: remoteSegmentCount,
             localSegmentCount: localSegmentCount,
-            startupMessage: _startupMessage
+            startupMessage: _startupMessage,
+            detectedAppName: _detectedAppName
         )
     }
 
@@ -135,7 +138,9 @@ actor TranscriptPipeline {
             self.systemAudioEngine = sysEngine
             systemOK = true
             remoteEngineStarted = true
-            print("🎤 DualStream: SystemAudio (remote) started")
+            // ★ 讀取偵測到的 App 名稱
+            _detectedAppName = await sysEngine.detectedAppName
+            print("🎙️ DualStream: SystemAudio (remote) started — App: \(_detectedAppName ?? "unknown")")
         } catch {
             systemError = error
             print("⚠️ DualStream: SystemAudio failed — \(error.localizedDescription)")
@@ -147,24 +152,27 @@ actor TranscriptPipeline {
             self.microphoneEngine = micEngine
             micOK = true
             localEngineStarted = true
-            print("🎤 DualStream: Microphone (local) started")
+            print("🎙️ DualStream: Microphone (local) started")
         } catch {
             micError = error
             print("⚠️ DualStream: Microphone failed — \(error.localizedDescription)")
         }
 
+        // ★ 啟動訊息含 App 名稱
+        let appLabel = _detectedAppName ?? "系統音訊"
+
         if systemOK && micOK {
             hasDualStream = true
             activeEngineType = .systemAudio
             captureState = .capturing
-            _startupMessage = "✅ 雙串流啟動成功：系統音訊（對方）+ 麥克風（我方）"
+            _startupMessage = "✅ 雙串流啟動成功：\(appLabel)（對方）+ 麥克風（我方）"
             startRemoteConsumer()
             startLocalConsumer()
         } else if systemOK {
             hasDualStream = false
             activeEngineType = .systemAudio
             captureState = .capturing
-            _startupMessage = "⚠️ 僅系統音訊啟動，\(describeError(micError, fallback: "麥克風權限未授權"))"
+            _startupMessage = "⚠️ 僅 \(appLabel) 音訊啟動，\(describeError(micError, fallback: "麥克風權限未授權"))"
             startRemoteConsumer()
         } else if micOK {
             hasDualStream = false
@@ -185,11 +193,10 @@ actor TranscriptPipeline {
     private func describeError(_ error: Error?, fallback: String) -> String {
         guard let error = error else { return fallback }
 
-        // 優先檢查 AudioCaptureError 類型
         if let captureError = error as? AudioCaptureError {
             switch captureError {
             case .noAudioSourceFound:
-                return "找不到會議 App（請先開啟 Teams / Zoom / Google Meet 並加入會議）"
+                return "找不到會議/通話 App（請先開啟 Teams/Zoom/LINE/WhatsApp/FaceTime 並加入通話）"
             case .permissionDenied:
                 return "權限未授權（需在系統設定 → 螢幕與系統錄音 開啟）"
             case .speechRecognizerUnavailable:
@@ -203,7 +210,6 @@ actor TranscriptPipeline {
             }
         }
 
-        // 其他未知錯誤
         return "\(error.localizedDescription)"
     }
 
@@ -224,6 +230,7 @@ actor TranscriptPipeline {
         remoteEngineStarted = false
         localEngineStarted = false
         _startupMessage = nil
+        _detectedAppName = nil
         continuation?.finish()
     }
 
@@ -252,7 +259,6 @@ actor TranscriptPipeline {
     // ═ Process Segment ═
 
     private func processSegment(_ segment: TranscriptSegment, speaker: SpeakerSource) {
-        // ★ 更新音訊健康追蹤 + 保存即時 partial text
         switch speaker {
         case .remote:
             remoteTranscript = segment.text
@@ -278,8 +284,6 @@ actor TranscriptPipeline {
 
         fullTranscript = buildMergedTranscript()
 
-        // ★ FIX: recentTranscript 直接用當前 segment 的 partial text
-        // 不再依賴 fullTranscript（雙串流且無 isFinal 時 fullTranscript 為空）
         if segment.text.count > 3 {
             let label = hasDualStream ? "[\(speaker == .remote ? "對方" : "我方")] " : ""
             recentTranscript = "\(label)\(String(segment.text.suffix(80)))"
@@ -304,9 +308,7 @@ actor TranscriptPipeline {
 
     private func buildMergedTranscript() -> String {
         if hasDualStream {
-            // 合併已確認的逐字稿 + 當前 partial text
             var merged = transcriptEntries.map { "[\($0.speakerLabel)] \($0.text)" }.joined(separator: "\n")
-            // ★ 加入當前未 final 的 partial text，讓 fullTranscript 不為空
             var partials: [String] = []
             if !remoteTranscript.isEmpty { partials.append("[對方] \(remoteTranscript)") }
             if !localTranscript.isEmpty { partials.append("[我方] \(localTranscript)") }
