@@ -10,7 +10,7 @@ language=zh-TW
 [SOURCES]
 notion_page_id=320f154a-6472-813f-bc2c-d98e570ab696
 notion_page_url=https://www.notion.so/PreMeeting-BiWeekly-Mark-J-J-12-Mar-2026-320f154a6472813fbc2cd98e570ab696
-notebooklm_notebook_id=
+notebooklm_notebook_id=51364658-5c30-4b55-8118-5103095ae8d0
 notebooklm_bridge_url=http://localhost:3210
 
 [GOALS]
