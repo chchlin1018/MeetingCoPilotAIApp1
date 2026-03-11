@@ -4,7 +4,23 @@
 
 ## 產品定位
 
-MeetingCopilot 是一款 macOS 原生 AI 會議助手，透過即時擷取線上會議音訊（Teams / Zoom / Meet），自動偵測**對方提問**，並在秒級延遲內提供 AI 建議回答。
+MeetingCopilot 是一款 macOS 原生 AI 會議助手，透過即時擷取線上會議音訊，自動偵測**對方提問**，並在秒級延遲內提供 AI 建議回答。
+
+### 支援的應用程式（11 個）
+
+| 類型 | App | Bundle ID |
+|------|-----|----------|
+| 會議 | Microsoft Teams | `com.microsoft.teams2` |
+| 會議 | Zoom | `us.zoom.xos` |
+| 會議 | Google Meet (Chrome) | `com.google.Chrome` |
+| 會議 | Webex | `com.cisco.webexmeetingsapp` |
+| 會議 | Slack | `com.tinyspeck.slackmacgap` |
+| 通訊 | **LINE** | `jp.naver.line.mac` |
+| 通訊 | **WhatsApp** | `net.whatsapp.WhatsApp` |
+| 通訊 | **WhatsApp (Native)** | `WhatsApp` |
+| 通訊 | **Telegram** | `ru.keepcoder.Telegram` |
+| 通訊 | **Discord** | `com.hnc.Discord` |
+| 通訊 | **FaceTime** | `com.apple.FaceTime` |
 
 ### 三大使用場景
 
@@ -23,12 +39,12 @@ MeetingCopilot 是一款 macOS 原生 AI 會議助手，透過即時擷取線上
 
 ### TranscriptOnly 分支
 
-專門測試 Zoom/Teams 會議的雙串流即時語音辨識，不含任何 AI 層：
+專門測試 Zoom/Teams/LINE/WhatsApp/FaceTime 等會議通話的雙串流即時語音辨識，不含任何 AI 層：
 
 ```bash
 git checkout feature/transcript-only
 open TranscriptOnly.xcodeproj
-# ⌘R → 開 Zoom/Teams → 按「開始會議」
+# ⌘R → 開任何支援的 App 通話 → 按「開始會議」
 ```
 
 只編譯 6 個 Swift 檔案（vs main 的 18 個），無需 API Key。詳見 [TranscriptOnly-README.md](TranscriptOnly-README.md)。
@@ -45,7 +61,6 @@ open TranscriptOnly.xcodeproj
 會前半天：Claude + Notion（策略規劃）
 │  Goals、Talking Points、Q&A 建議、談判策略
 │  搜尋 Gmail、Google Doc → 整合到 Notion
-│  Email Draft → quote block + checkbox
 │
 會前 5 分鐘：MeetingCopilot App
 │  Claude 讀 Notion → 產生 TXT → push GitHub
@@ -71,8 +86,7 @@ open TranscriptOnly.xcodeproj
 │                                                          │
 │  ┌─────────────────────┐  ┌───────────────────────────┐ │
 │  │ TranscriptPipeline  │  │ ResponseOrchestrator       │ │
-│  │ ★ 雙串流 + 分色    │  │                            │ │
-│  │ TranscriptEntry[] │  │ ★ 雙來源並行 RAG          │ │
+│  │ ★ 雙串流 + 分色    │  │ ★ 雙來源並行 RAG          │ │
 │  │ SystemAudio→remote│→→│ NotebookLM(文件數據)      │ │
 │  │ Microphone →local │  │ Notion(個人策略)          │ │
 │  │ ★ Live Partial    │  │ → 並行查詢 → 合併 → Claude │ │
@@ -82,42 +96,15 @@ open TranscriptOnly.xcodeproj
 │  │ TalkingPointsTracker│  │ MeetingPrepView            │ │
 │  │ • MUST/SHOULD/NICE  │  │ • 會前資料輸入 UI          │ │
 │  │ • detectedSpeech   │  │ • TXT 儲存/讀取           │ │
-│  │ • 偵測到我方已講    │  │ • 語言選擇 (5 種)       │ │
-│  └─────────────────────┘  └───────────────────────────┘ │
-│                                                          │
-│  ┌─────────────────────┐  ┌───────────────────────────┐ │
-│  │ KeychainManager     │  │ SystemMonitor              │ │
-│  │ • Claude API Key    │  │ • CPU / Memory / Network   │ │
-│  │ • Notion API Key    │  │ • Mach API + vm_statistics │ │
-│  │ • NLM Notebook ID   │  │ • 3s polling               │ │
-│  └─────────────────────┘  └───────────────────────────┘ │
-│                                                          │
-│  ┌─────────────────────┐  ┌───────────────────────────┐ │
-│  │ SystemCheckView     │  │ PostMeetingReportService   │ │
-│  │ ★ 會前 8 項診斷    │  │ • AI 摘要 + Action Items  │ │
-│  │ • Mic / Speech / TCC│  │ • Markdown / TXT 匯出     │ │
-│  │ • Claude / Notion   │  │ • Notion 匯出             │ │
 │  └─────────────────────┘  └───────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
-```
-
-### 三層即時管線（雙來源並行）
-
-```
-問題偵測(.remote) → ① 本地 Q&A (< 200ms) → 🔵 命中即返回
-                   → ② 雙來源並行 RAG (1-3s)
-                        ├─ 📄 NotebookLM → 文件原文數據（PDF/PPTX/XLSX）
-                        └─ 📝 Notion     → 個人策略筆記（Goals/TP/Q&A）
-                        → 合併 context
-                   → ③ Claude + merged context (2-4s) → 🟣 有佐證的 AI 回答
-背景: 每 3 分鐘 → 🟠 策略分析（含 TP 狀態）
-持續: TP 追蹤(.local) → ⚠️ MUST 未講提醒 + ✅ 偵測到我方已講
 ```
 
 ### 雙串流說話者分離
 
 ```
 SystemAudioEngine (ScreenCaptureKit) → 「對方的聲音」 → .remote
+  → 支援 11 個 App（Teams/Zoom/Meet/LINE/WhatsApp/Telegram/Discord/FaceTime...）
   → 觸發問題偵測 → 進入三層 AI 管線
 
 MicrophoneEngine (AVAudioEngine) → 「我的聲音」 → .local
@@ -132,77 +119,42 @@ MicrophoneEngine (AVAudioEngine) → 「我的聲音」 → .local
 MeetingCoPilotAIApp1/
 │
 ├── MeetingCopilot.xcodeproj/           # v4.3.1 build 8（完整版）
-├── TranscriptOnly.xcodeproj/           # ★ v1.0 精簡版（feature/transcript-only 分支）
+├── TranscriptOnly.xcodeproj/           # ★ v1.0 精簡版（feature/transcript-only）
 │
 ├── MeetingCopilot/                     # 完整版 App 入口
-│   ├── MeetingCopilotApp.swift          # @main + API Key 設定
-│   ├── Info.plist / .entitlements
-│   └── Assets.xcassets/
+├── TranscriptOnly/                     # 精簡版 App 入口
 │
-├── TranscriptOnly/                     # ★ 精簡版 App 入口（feature/transcript-only）
-│   ├── TranscriptOnlyApp.swift          # @main（無 API Key）
-│   ├── TranscriptOnlyView.swift         # UI + ViewModel（直接接 Pipeline）
-│   ├── Info.plist / .entitlements
-│   └── Assets.xcassets/
-│
-├── Sources/ (18 個 Swift 檔案)
-│   │
-│   │  ── 音訊層（TranscriptOnly 共用）──
-│   ├── AudioCaptureEngine.swift         # Protocol + 共用型別
-│   ├── SystemAudioCaptureEngine.swift   # 主引擎 (ScreenCaptureKit) → remote
-│   ├── MicrophoneCaptureEngine.swift    # 降級引擎 (Mic) → local
+├── Sources/ (18 個 Swift)
+│   ├── AudioCaptureEngine.swift         # Protocol + MeetingApp (11 個 App)
+│   ├── SystemAudioCaptureEngine.swift   # ScreenCaptureKit → remote
+│   ├── MicrophoneCaptureEngine.swift    # AVAudioEngine → local
 │   ├── TranscriptPipeline.swift         # 雙串流 + Live Partial + Audio Health
-│   │
-│   │  ── AI 服務層（僅完整版）──
-│   ├── KeywordMatcherAndClaude.swift    # 第一層 Q&A + Claude API
-│   ├── NotebookLMService.swift          # 第二層 NotebookLM RAG
-│   ├── NotionRetrievalService.swift     # 第二層 Notion RAG
-│   ├── TalkingPointsTracker.swift       # TP 追蹤 + detectedSpeech
-│   │
-│   │  ── 架構層（僅完整版）──
-│   ├── ProviderProtocols.swift          # 3 個抽象介面
+│   ├── KeywordMatcherAndClaude.swift    # Layer 1: Q&A + Claude API
+│   ├── NotebookLMService.swift          # Layer 2: NotebookLM RAG
+│   ├── NotionRetrievalService.swift     # Layer 2: Notion RAG
 │   ├── ResponseOrchestrator.swift       # 雙來源並行 RAG + Claude
-│   ├── MeetingAICoordinator.swift       # 瘦身 Coordinator + SwiftData
-│   │
-│   │  ── 基礎設施（僅完整版）──
-│   ├── KeychainManager.swift            # Keychain
-│   ├── MeetingSessionStore.swift        # SwiftData persistence
-│   ├── SystemMonitor.swift              # CPU / Memory / Network
-│   ├── SystemCheckView.swift            # 會前 8 項系統診斷
-│   ├── PostMeetingReportService.swift   # AI 摘要 + Action Items + Notion 匯出
-│   ├── MeetingPrepView.swift            # 會前準備 UI + TXT + 語言選擇
-│   ├── DemoDataProvider.swift           # Demo 資料
-│   └── UsageExample.swift               # 主畫面 + 分色逐字稿 + 會後儲存
+│   └── ... (其他 10 個)
 │
 ├── Tests/ (4 個測試)
 ├── bridge/                             # NotebookLM Bridge (Node.js)
-├── skills/                             # Claude MeetingPrep Skill
-│   └── MeetingPrep-SKILL.md
-├── scripts/                            # Notion 模板建立腳本
-├── templates/                          # TXT + Notion 模板
-├── MeetingTEXT/                        # 會前準備 TXT 檔案
-│   ├── 2026-03-11_BiWeekly-Stanley.txt
-│   ├── 2026-03-12_BiWeekly-Mark-JJ.txt
-│   └── ...
-├── TODO.md
-├── TranscriptOnly-README.md
-├── .gitignore
+├── skills/MeetingPrep-SKILL.md
+├── scripts/ | templates/ | MeetingTEXT/
+├── TODO.md | TranscriptOnly-README.md
 └── README.md
 ```
 
 ## Quick Start
 
-### 完整版（main 分支）
+### 完整版（main）
 
 ```bash
 git clone https://github.com/chchlin1018/MeetingCoPilotAIApp1.git
-cd MeetingCoPilotAIApp1
 open MeetingCopilot.xcodeproj
 # Signing → Development Team → ⌘R
-# 設定 Claude API Key + Notion API Key → 系統檢查 → 開始會議
+# 設定 Claude + Notion API Key → 系統檢查 → 開始會議
 ```
 
-### 精簡版（transcript-only 分支）
+### 精簡版（transcript-only）
 
 ```bash
 git clone https://github.com/chchlin1018/MeetingCoPilotAIApp1.git
@@ -210,28 +162,13 @@ cd MeetingCoPilotAIApp1
 git checkout feature/transcript-only
 open TranscriptOnly.xcodeproj
 # Signing → Development Team → ⌘R
-# 開 Zoom/Teams → 按「開始會議」（不需要任何 API Key）
+# 開任何支援的 App 通話 → 按「開始會議」（不需 API Key）
 ```
 
-### 取得 API Keys（完整版）
-
-| 服務 | 取得方式 |
-|------|--------|
-| Claude | https://console.anthropic.com/settings/keys |
-| Notion | https://www.notion.so/profile/integrations → New integration |
-
-### 權限需求
+### 權限
 
 - **螢幕與系統錄音**：System Settings → Privacy & Security → Screen & System Audio Recording → 開啟
-- **麥克風**：首次啟動自動請求
-- **語音辨識**：首次啟動自動請求
-
-每次 Xcode rebuild 後可能需要重新授權 TCC：
-```bash
-tccutil reset ScreenCapture com.RealityMatrix.MeetingCopilot
-# 或精簡版
-tccutil reset ScreenCapture com.RealityMatrix.TranscriptOnly
-```
+- 每次 Xcode rebuild 後可能需重新授權：`tccutil reset ScreenCapture com.RealityMatrix.MeetingCopilot`
 
 ## 版本演進
 
@@ -239,14 +176,12 @@ tccutil reset ScreenCapture com.RealityMatrix.TranscriptOnly
 |------|------|:----:|
 | v4.0 | 雙引擎即時管線 | ✅ |
 | v4.1 | 三層管線 + TP 追蹤 + NotebookLM Bridge | ✅ |
-| v4.2 | 工程化重構（Coordinator -57% + Keychain + Provider Protocol） | ✅ |
-| v4.3 | 雙串流 + 雙來源並行 RAG + 分色 UI + 系統監控 + 會後儲存 | ✅ |
-| v4.3.1 | SystemCheck + Live Partial + 錯誤訊息改善 + 配色統一 | ✅ |
-| **TranscriptOnly** | **精簡分支 — 純雙串流語音辨識測試（6 Swift 檔案）** | **✅ 測試中** |
-| v4.4 | Evidence-based Card + Claude 動態關鍵字 + Notion 自動同步 | 🔜 |
-| v5.0 | Speaker Diarization + WhisperKit + Enterprise | 🔮 |
-
-詳細開發待辦請參考 [TODO.md](TODO.md)
+| v4.2 | 工程化重構（Coordinator -57%） | ✅ |
+| v4.3 | 雙串流 + 雙來源並行 RAG + 分色 UI | ✅ |
+| v4.3.1 | SystemCheck + Live Partial + 11 App 支援 | ✅ |
+| **TranscriptOnly** | **精簡分支 — 純語音辨識測試** | **✅ 測試中** |
+| v4.4 | Evidence-based Card + Claude 動態關鍵字 | 🔜 |
+| v5.0 | Speaker Diarization + WhisperKit | 🔮 |
 
 ## 技術規格
 
@@ -255,19 +190,13 @@ tccutil reset ScreenCapture com.RealityMatrix.TranscriptOnly
 | 平台 | macOS 14.0+ (Sonoma) |
 | 語言 | Swift 5.0, Strict Concurrency |
 | UI | SwiftUI + @Observable |
-| 持久化 | SwiftData |
+| 支援 App | 11 個（Teams/Zoom/Meet/LINE/WhatsApp/Telegram/Discord/FaceTime...） |
 | RAG | NotebookLM(文件) + Notion(策略) 並行 |
-| 安全 | macOS Keychain |
 | 語音辨識 | Apple Speech（zh-TW / en-US / en-GB / zh-CN / ja-JP）|
-| 系統監控 | CPU (Mach API) + Memory (vm_statistics64) + Network |
-| 會前診斷 | SystemCheckView（8 項自動檢測） |
-| 會前準備 | MeetingPrep Skill（Notion SSOT → TXT → App） |
 | 主 Bundle ID | com.RealityMatrix.MeetingCopilot |
 | 測試 Bundle ID | com.RealityMatrix.TranscriptOnly |
 | 版本 | 4.3.1 (build 8) |
-| Swift 檔案 | 18 個 + 2 個 (TranscriptOnly) + 4 測試 |
-| 架構 | Actor-based, Dual-stream, Event-driven |
-| 74 commits | main: 18 files, transcript-only: 6 files |
+| Swift 檔案 | 18 + 2 (TranscriptOnly) + 4 測試 |
 
 ## 授權
 
