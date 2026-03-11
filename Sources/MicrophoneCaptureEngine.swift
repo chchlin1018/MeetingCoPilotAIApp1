@@ -1,6 +1,6 @@
 // MicrophoneCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Fallback: Microphone Capture Engine
-// Fixed: restart bug + debug logging
+// Fixed: restart loop + speech error handling
 
 import Foundation
 import AVFoundation
@@ -18,9 +18,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     
     nonisolated(unsafe) private var _state: AudioCaptureState = .idle
     
-    nonisolated var state: AudioCaptureState {
-        _state
-    }
+    nonisolated var state: AudioCaptureState { _state }
     
     private var streamContinuation: AsyncStream<TranscriptSegment>.Continuation?
     private let audioEngine = AVAudioEngine()
@@ -30,6 +28,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private let config: AudioCaptureConfiguration
     private var bufferCount: Int = 0
     private var restartCount: Int = 0
+    private var hasEverReceivedSpeech: Bool = false
     
     init(configuration: AudioCaptureConfiguration = .default) {
         self.config = configuration
@@ -56,6 +55,8 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
             throw AudioCaptureError.engineStartFailed("Cannot create Request")
         }
         request.shouldReportPartialResults = config.enablePartialResults
+        // ★ 允許更長的靜音等待時間
+        request.requiresOnDeviceRecognition = false
         
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -65,8 +66,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         inputNode.installTap(onBus: 0, bufferSize: config.bufferSize, format: recordingFormat) { [weak self] buffer, _ in
             guard let self = self else { return }
             self.recognitionRequest?.append(buffer)
-            
-            // ★ 計數（用 Task 避免 actor isolation 問題）
             Task { await self.incrementBufferCount() }
         }
         
@@ -79,13 +78,14 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         print("✅ Mic: audioEngine started, listening...")
     }
     
-    // MARK: - Speech Recognition (可重啟）
+    // MARK: - Speech Recognition
     
     private func startSpeechRecognition(recognizer: SFSpeechRecognizer, request: SFSpeechAudioBufferRecognitionRequest) {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
             Task {
                 if let result = result {
+                    await self.markSpeechReceived()
                     let segment = TranscriptSegment(
                         text: result.bestTranscription.formattedString,
                         timestamp: Date(),
@@ -97,11 +97,43 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
                     await self.emitSegment(segment)
                 }
                 if let error = error {
-                    print("⚠️ Mic speech error: \(error.localizedDescription)")
-                    await self.restartSpeechOnly()
+                    await self.handleSpeechError(error)
                 }
             }
         }
+    }
+    
+    // MARK: - ★ Smart Error Handling
+    
+    private func handleSpeechError(_ error: Error) async {
+        let nsError = error as NSError
+        let code = nsError.code
+        let description = error.localizedDescription
+        
+        // ★ "No speech detected" (code 1110) — 正常現象，不是錯誤
+        // 用較長延遲重啟，避免快速循環
+        if description.contains("No speech detected") || code == 1110 {
+            if restartCount < 3 {
+                print("💤 Mic: no speech yet (waiting 5s before restart #\(restartCount + 1))")
+            }
+            // ★ 等 5 秒再重啟（而不是 0.3 秒）
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await restartSpeechOnly()
+            return
+        }
+        
+        // ★ 60 秒 timeout (code 216) — 正常超時，快速重啟
+        if nsError.domain == "kAFAssistantErrorDomain" && code == 216 {
+            print("⏰ Mic: 60s timeout, restarting...")
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            await restartSpeechOnly()
+            return
+        }
+        
+        // ★ 其他錯誤 — 記錄後重啟
+        print("⚠️ Mic speech error [\(code)]: \(description)")
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        await restartSpeechOnly()
     }
     
     // MARK: - Stop
@@ -116,16 +148,10 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         streamContinuation?.finish()
         streamContinuation = nil
         _state = .idle
-        print("⏹️ Mic: stopped (buffers: \(bufferCount), restarts: \(restartCount))")
+        print("⏹️ Mic: stopped (buffers: \(bufferCount), restarts: \(restartCount), gotSpeech: \(hasEverReceivedSpeech))")
     }
     
-    // MARK: - ★ Restart Speech Only (不重啟 audioEngine)
-    //
-    // 舊的 bug：restartRecognition() 呼叫 start()，但 start() 有
-    // guard !_state.isActive → state 還是 .capturing → 直接 return
-    // → 語音辨識就死了！
-    //
-    // 修復：僅重啟 Speech Recognition，不動 audioEngine（麥克風持續擷取）
+    // MARK: - Restart Speech Only
     
     private func restartSpeechOnly() async {
         recognitionRequest?.endAudio()
@@ -133,19 +159,16 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         recognitionTask = nil
         recognitionRequest = nil
         
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        
+        guard _state.isActive else { return }  // 已停止則不重啟
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            print("❌ Mic: speech recognizer unavailable for restart")
+            print("❌ Mic: speech recognizer unavailable")
             return
         }
         
-        // ★ 建立新的 recognition request
         let newRequest = SFSpeechAudioBufferRecognitionRequest()
         newRequest.shouldReportPartialResults = config.enablePartialResults
         self.recognitionRequest = newRequest
         
-        // ★ 重新安裝 tap（指向新的 request）
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -155,22 +178,29 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
             Task { await self.incrementBufferCount() }
         }
         
-        // ★ 啟動新的 recognition task
         startSpeechRecognition(recognizer: recognizer, request: newRequest)
         
         restartCount += 1
-        print("🔄 Mic: speech restarted (#\(restartCount), buffers so far: \(bufferCount))")
+        if restartCount <= 5 || restartCount % 10 == 0 {
+            print("🔄 Mic: speech restarted (#\(restartCount))")
+        }
     }
     
     // MARK: - Helpers
+    
+    private func markSpeechReceived() {
+        if !hasEverReceivedSpeech {
+            hasEverReceivedSpeech = true
+            print("🎉 Mic: first speech recognized!")
+        }
+    }
     
     private func incrementBufferCount() {
         bufferCount += 1
         if bufferCount == 1 {
             print("🎙️ Mic: first audio buffer received")
         }
-        // 每 500 個 buffer log 一次（約 10 秒）
-        if bufferCount % 500 == 0 {
+        if bufferCount % 1000 == 0 {
             print("🎙️ Mic: buffer count = \(bufferCount)")
         }
     }
