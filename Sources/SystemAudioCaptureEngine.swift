@@ -1,6 +1,6 @@
 // SystemAudioCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Primary: ScreenCaptureKit System Audio Capture
-// Fixed: Dynamic audio format detection + actor isolation
+// Fixed: Dynamic audio format + App priority detection
 
 import Foundation
 import ScreenCaptureKit
@@ -47,7 +47,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     private var bufferCount: Int = 0
     private var convertFailCount: Int = 0
     
-    // MARK: - Public: 偵測到的 App
+    // MARK: - Public
     
     var detectedAppName: String? {
         detectedMeetingApp?.displayName
@@ -70,22 +70,17 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         guard !_state.isActive else { return }
         _state = .preparing
         
-        // Step 1: Speech permission
         try await requestSpeechPermission()
-        
-        // Step 2: Init speech recognizer
         try setupSpeechRecognizer()
         
-        // Step 3: Get shareable content
         let availableContent = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true
         )
         
-        // Step 4: Find meeting app
+        // ★ Smart App detection with priority
         let targetApp = try findMeetingApp(in: availableContent)
         detectedMeetingApp = targetApp
         
-        // Step 5: Configure ScreenCaptureKit for audio-only
         let filter = SCContentFilter(
             desktopIndependentWindow: try findMainWindow(for: targetApp, in: availableContent)
         )
@@ -100,7 +95,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         streamConfig.sampleRate = Int(config.sampleRate)
         streamConfig.channelCount = config.channelCount
         
-        // Step 6: Stream output handler
         streamOutput = AudioStreamOutput(
             onAudioBuffer: { [weak self] sampleBuffer in
                 Task { [weak self] in
@@ -114,7 +108,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
             }
         )
         
-        // Step 7: Start SCStream
         captureStream = SCStream(filter: filter, configuration: streamConfig, delegate: streamOutput)
         
         guard let captureStream = captureStream, let streamOutput = streamOutput else {
@@ -130,11 +123,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
             )
         )
         
-        // ★ Note: Audio converter is NO LONGER pre-initialized here
-        // It will be dynamically created from the first actual audio buffer
-        // This avoids format mismatch issues (-10877)
-        
-        // Step 8: Prepare speech format target (16kHz mono for Apple Speech)
         speechFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16000.0,
@@ -142,10 +130,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
             interleaved: false
         )
         
-        // Step 9: Start speech recognition
         try startSpeechRecognition()
-        
-        // Step 10: Begin capture
         try await captureStream.startCapture()
         
         _state = .capturing
@@ -201,34 +186,104 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
-    // MARK: - Detect Meeting App
+    // MARK: - ★ Smart App Detection (with priority + active window check)
     
+    /// App 偵測優先級：
+    /// Tier 1 (最高)：Zoom, Teams, Webex — 專業會議軟體
+    /// Tier 2：Google Meet (Chrome) — 瀏覽器會議
+    /// Tier 3：Slack, Discord — 團隊協作
+    /// Tier 4 (最低)：LINE, WhatsApp, Telegram, FaceTime — 通訊軟體
     private func findMeetingApp(in content: SCShareableContent) throws -> MeetingApp {
-        if config.autoDetectMeetingApp {
-            for app in content.applications {
-                if let meetingApp = MeetingApp.from(bundleID: app.bundleIdentifier) {
-                    print("  📱 Detected: \(meetingApp.displayName) (\(app.bundleIdentifier))")
-                    return meetingApp
-                }
+        guard config.autoDetectMeetingApp else {
+            throw AudioCaptureError.noAudioSourceFound
+        }
+        
+        // ★ Step 1: 掃描所有支援的 App 並檢查是否有活躍視窗
+        struct DetectedApp {
+            let app: MeetingApp
+            let hasActiveWindow: Bool
+            let windowArea: CGFloat   // 最大視窗面積
+            let priority: Int         // 優先級（0=最高）
+        }
+        
+        var candidates: [DetectedApp] = []
+        
+        for app in content.applications {
+            guard let meetingApp = MeetingApp.from(bundleID: app.bundleIdentifier) else { continue }
+            
+            // 檢查是否有活躍視窗（在螢幕上且大於 200x200）
+            let activeWindows = content.windows.filter { w in
+                w.owningApplication?.bundleIdentifier == app.bundleIdentifier
+                && w.isOnScreen
+                && w.frame.width > 200 && w.frame.height > 200
             }
             
-            let browserBundles = [
-                "com.google.Chrome", "com.apple.Safari",
-                "com.microsoft.edgemac", "org.mozilla.firefox", "com.brave.Browser"
-            ]
+            let hasActive = !activeWindows.isEmpty
+            let maxArea = activeWindows.map { $0.frame.width * $0.frame.height }.max() ?? 0
+            let priority = meetingApp.detectionPriority
             
-            for app in content.applications {
-                if browserBundles.contains(app.bundleIdentifier) {
-                    for window in content.windows where window.owningApplication?.bundleIdentifier == app.bundleIdentifier {
-                        if let title = window.title,
-                           (title.contains("Meet") || title.contains("meet.google.com")) {
-                            print("  📱 Detected Google Meet in \(app.applicationName)")
-                            return .googleMeet
-                        }
+            print("  🔍 Scan: \(meetingApp.displayName) | active=\(hasActive) | area=\(Int(maxArea)) | priority=\(priority)")
+            
+            candidates.append(DetectedApp(
+                app: meetingApp,
+                hasActiveWindow: hasActive,
+                windowArea: maxArea,
+                priority: priority
+            ))
+        }
+        
+        // ★ Step 2: 檢查瀏覽器是否有 Google Meet
+        let browserBundles = [
+            "com.google.Chrome", "com.apple.Safari",
+            "com.microsoft.edgemac", "org.mozilla.firefox", "com.brave.Browser"
+        ]
+        
+        for app in content.applications {
+            if browserBundles.contains(app.bundleIdentifier) {
+                for window in content.windows where window.owningApplication?.bundleIdentifier == app.bundleIdentifier {
+                    if let title = window.title,
+                       (title.contains("Meet") || title.contains("meet.google.com")) {
+                        let area = window.frame.width * window.frame.height
+                        print("  🔍 Scan: Google Meet in \(app.applicationName) | active=true | area=\(Int(area)) | priority=1")
+                        candidates.append(DetectedApp(
+                            app: .googleMeet,
+                            hasActiveWindow: true,
+                            windowArea: area,
+                            priority: 1  // Tier 1 — 同等於專業會議軟體
+                        ))
+                        break
                     }
                 }
             }
         }
+        
+        // ★ Step 3: 排序選擇最佳候選
+        // 排序規則：
+        //   1. 有活躍視窗的優先
+        //   2. 同等活躍狀態下，優先級數字小的優先
+        //   3. 同等優先級下，視窗面積大的優先
+        let sorted = candidates.sorted { a, b in
+            if a.hasActiveWindow != b.hasActiveWindow {
+                return a.hasActiveWindow   // 有活躍視窗的排前面
+            }
+            if a.priority != b.priority {
+                return a.priority < b.priority  // 優先級數字小的排前面
+            }
+            return a.windowArea > b.windowArea  // 視窗大的排前面
+        }
+        
+        // ★ Step 4: 僅選擇有活躍視窗的 App
+        if let best = sorted.first(where: { $0.hasActiveWindow }) {
+            print("  📱 Selected: \(best.app.displayName) (priority=\(best.priority), area=\(Int(best.windowArea)))")
+            return best.app
+        }
+        
+        // 沒有任何有活躍視窗的 App
+        if !candidates.isEmpty {
+            let names = candidates.map { $0.app.displayName }.joined(separator: ", ")
+            print("  ⚠️ Found apps but none have active windows: \(names)")
+        }
+        
         throw AudioCaptureError.noAudioSourceFound
     }
     
@@ -248,33 +303,29 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         return mainWindow
     }
     
-    // MARK: - ★ Dynamic Audio Converter (lazy from first buffer)
+    // MARK: - ★ Dynamic Audio Converter
     
     private func ensureConverter(for inputFormat: AVAudioFormat) -> Bool {
         guard let targetFormat = speechFormat else { return false }
         
-        // Already initialized with same format
         if converterInitialized, let last = lastInputFormat,
            last.sampleRate == inputFormat.sampleRate &&
            last.channelCount == inputFormat.channelCount {
             return audioConverter != nil
         }
         
-        // Log format detection
         if !converterInitialized {
-            print("🔊 Audio format detected: \(inputFormat.sampleRate)Hz / \(inputFormat.channelCount)ch / \(inputFormat.commonFormat.rawValue)")
-            print("🔊 Target format: \(targetFormat.sampleRate)Hz / \(targetFormat.channelCount)ch")
+            print("🔊 Audio format detected: \(inputFormat.sampleRate)Hz / \(inputFormat.channelCount)ch")
         } else {
             print("⚠️ Audio format CHANGED: \(inputFormat.sampleRate)Hz / \(inputFormat.channelCount)ch")
         }
         
-        // Create converter dynamically
         audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
         lastInputFormat = inputFormat
         converterInitialized = true
         
         if audioConverter == nil {
-            print("❌ Cannot create audio converter from \(inputFormat.sampleRate)Hz to \(targetFormat.sampleRate)Hz")
+            print("❌ Cannot create audio converter")
             return false
         }
         
@@ -319,8 +370,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
-    // MARK: - Auto-restart (60s timeout handling)
-    
     private func restartSpeechRecognition() async {
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
@@ -337,7 +386,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
-    // MARK: - ★ Process Audio Buffer (with dynamic format detection)
+    // MARK: - ★ Process Audio Buffer
     
     private func processAudioBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard let formatDescription = sampleBuffer.formatDescription,
@@ -347,29 +396,24 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         
         bufferCount += 1
         
-        // ★ Method 1: Try direct append from CMSampleBuffer (most reliable)
         if appendDirectly(sampleBuffer: sampleBuffer, asbd: asbd.pointee) {
             return
         }
         
-        // ★ Method 2: Convert to PCM buffer then downsample
         guard let pcmBuffer = convertToPCMBuffer(sampleBuffer: sampleBuffer, asbd: asbd.pointee) else {
             return
         }
         
         let inputFormat = pcmBuffer.format
         
-        // Same sample rate as target — append directly
         if abs(inputFormat.sampleRate - 16000.0) < 100 {
             recognitionRequest?.append(pcmBuffer)
             return
         }
         
-        // Need conversion — ensure converter exists for this format
         guard ensureConverter(for: inputFormat),
               let converter = audioConverter,
               let targetFormat = speechFormat else {
-            // Fallback: try appending raw buffer anyway
             recognitionRequest?.append(pcmBuffer)
             return
         }
@@ -382,10 +426,8 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
         
         var conversionError: NSError?
-        var hasData = false
         let status = converter.convert(to: convertedBuffer, error: &conversionError) { _, outStatus in
             outStatus.pointee = .haveData
-            hasData = true
             return pcmBuffer
         }
         
@@ -394,20 +436,17 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         } else if status == .error {
             convertFailCount += 1
             if convertFailCount <= 3 {
-                print("⚠️ Convert error #\(convertFailCount): \(conversionError?.localizedDescription ?? "unknown") — trying direct append")
+                print("⚠️ Convert error #\(convertFailCount): \(conversionError?.localizedDescription ?? "unknown")")
             }
-            // ★ Fallback: reset converter and try raw append
             converterInitialized = false
             audioConverter = nil
             recognitionRequest?.append(pcmBuffer)
         }
     }
     
-    // MARK: - ★ Direct append from CMSampleBuffer (bypass converter)
+    // MARK: - Direct append
     
     private func appendDirectly(sampleBuffer: CMSampleBuffer, asbd: AudioStreamBasicDescription) -> Bool {
-        // If the source is already close to 16kHz, we can skip conversion
-        // Apple Speech is somewhat flexible on input rates
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: asbd.mSampleRate,
@@ -418,8 +457,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
         guard frameCount > 0 else { return false }
         
-        // For sample rates that Apple Speech can handle natively (16k-48k)
-        // Try creating a buffer and appending directly
         guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
             return false
         }
@@ -440,10 +477,8 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
             memcpy(channelData[0], data, min(byteCount, totalLength))
         }
         
-        // ★ Directly append to speech recognition (Apple Speech handles resampling)
         recognitionRequest?.append(pcmBuffer)
         
-        // Log first buffer info
         if bufferCount == 1 {
             print("🔊 First audio buffer: \(asbd.mSampleRate)Hz / \(asbd.mChannelsPerFrame)ch / \(frameCount) frames")
             print("🔊 Strategy: direct append (Apple Speech handles resampling)")
@@ -452,7 +487,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         return true
     }
     
-    // MARK: - CMSampleBuffer -> AVAudioPCMBuffer (fallback)
+    // MARK: - CMSampleBuffer -> AVAudioPCMBuffer
     
     private func convertToPCMBuffer(sampleBuffer: CMSampleBuffer, asbd: AudioStreamBasicDescription) -> AVAudioPCMBuffer? {
         guard let format = AVAudioFormat(

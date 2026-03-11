@@ -3,9 +3,6 @@
 // MeetingCopilot v4.3.1 — Core Audio Capture Protocol & Types
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// 定義統一的音訊擷取介面，讓 SystemAudioCaptureEngine（主引擎）和
-// MicrophoneCaptureEngine（降級方案）都實作同一個 Protocol。
-//
 // Platform: macOS 14.0+
 // Framework: ScreenCaptureKit, AVFoundation, Speech
 // Supported Apps: 11 (Teams/Zoom/Meet/Webex/Slack/LINE/WhatsApp/Telegram/Discord/FaceTime)
@@ -17,42 +14,29 @@ import Speech
 
 // MARK: - 音訊擷取引擎 Protocol
 
-/// 所有音訊擷取引擎的統一介面
-/// SystemAudioCaptureEngine 和 MicrophoneCaptureEngine 都實作此 Protocol
 protocol AudioCaptureEngine: AnyObject {
-    
-    /// 即時轉錄文字的 AsyncStream（Partial Results）
-    /// UI 層直接 for await 這個 stream 即可獲得即時文字
     var transcriptStream: AsyncStream<TranscriptSegment> { get }
-    
-    /// 引擎目前狀態
     var state: AudioCaptureState { get }
-    
-    /// 啟動擷取
     func start() async throws
-    
-    /// 停止擷取
     func stop() async
-    
-    /// 引擎類型標識
     var engineType: AudioCaptureEngineType { get }
 }
 
 // MARK: - 引擎類型
 
 enum AudioCaptureEngineType: String, Sendable {
-    case systemAudio = "ScreenCaptureKit"   // 主引擎：擷取系統音訊
-    case microphone  = "Microphone"          // 降級方案：擷取麥克風
+    case systemAudio = "ScreenCaptureKit"
+    case microphone  = "Microphone"
 }
 
 // MARK: - 引擎狀態
 
 enum AudioCaptureState: Sendable {
-    case idle                   // 待機
-    case preparing              // 準備中（請求權限、初始化）
-    case capturing              // 擷取中
-    case paused                 // 暫停
-    case error(AudioCaptureError)  // 錯誤
+    case idle
+    case preparing
+    case capturing
+    case paused
+    case error(AudioCaptureError)
     
     var isActive: Bool {
         if case .capturing = self { return true }
@@ -107,18 +91,19 @@ struct TranscriptSegment: Sendable, Identifiable {
 // MARK: - 會議/通話應用程式識別（11 個 App）
 
 enum MeetingApp: String, CaseIterable, Sendable {
-    // ── 會議軟體 ──
+    // ── 會議軟體 (Tier 1) ──
     case microsoftTeams = "com.microsoft.teams2"
     case zoom           = "us.zoom.xos"
     case googleMeet     = "com.google.Chrome"
     case webex          = "com.cisco.webexmeetingsapp"
+    // ── 團隊協作 (Tier 2) ──
     case slack          = "com.tinyspeck.slackmacgap"
-    // ── 通訊軟體 ──
+    case discord        = "com.hnc.Discord"
+    // ── 通訊軟體 (Tier 3) ──
     case line           = "jp.naver.line.mac"
     case whatsapp       = "net.whatsapp.WhatsApp"
-    case whatsappNative = "WhatsApp"                    // App Store 原生版
+    case whatsappNative = "WhatsApp"
     case telegram       = "ru.keepcoder.Telegram"
-    case discord        = "com.hnc.Discord"
     case facetime       = "com.apple.FaceTime"
     
     var bundleIdentifier: String { rawValue }
@@ -130,12 +115,30 @@ enum MeetingApp: String, CaseIterable, Sendable {
         case .googleMeet:     return "Google Meet (Chrome)"
         case .webex:          return "Webex"
         case .slack:          return "Slack"
+        case .discord:        return "Discord"
         case .line:           return "LINE"
         case .whatsapp:       return "WhatsApp"
         case .whatsappNative: return "WhatsApp (Native)"
         case .telegram:       return "Telegram"
-        case .discord:        return "Discord"
         case .facetime:       return "FaceTime"
+        }
+    }
+    
+    /// ★ 偵測優先級（數字越小優先級越高）
+    /// Tier 0: Zoom/Teams/Webex — 專業會議軟體，最優先
+    /// Tier 1: Google Meet — 瀏覽器會議
+    /// Tier 2: Slack/Discord — 團隊協作
+    /// Tier 3: LINE/WhatsApp/Telegram/FaceTime — 通訊軟體
+    var detectionPriority: Int {
+        switch self {
+        case .microsoftTeams, .zoom, .webex:
+            return 0
+        case .googleMeet:
+            return 1
+        case .slack, .discord:
+            return 2
+        case .line, .whatsapp, .whatsappNative, .telegram, .facetime:
+            return 3
         }
     }
     
