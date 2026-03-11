@@ -1,6 +1,6 @@
 // TranscriptOnlyView.swift
 // TranscriptOnly — feature/transcript-only
-// 精簡 UI：語言選擇 + 開始/停止 + 分色逐字稿 + Live Partial + Audio Health + App Detection
+// 精簡 UI：語言選擇 + 開始/停止 + 分色逐字稿 + Live Partial + Audio Health + App Detection + System Check
 
 import SwiftUI
 
@@ -50,7 +50,7 @@ final class TranscriptOnlyViewModel {
     var selectedLanguage: RecognitionLanguage = .zhTW
     var entries: [TranscriptEntry] = []
     
-    // Live Partial（未 final 的辨識文字）
+    // Live Partial
     var remotePartial: String = ""
     var localPartial: String = ""
     
@@ -163,7 +163,7 @@ final class TranscriptOnlyViewModel {
         }
     }
     
-    // MARK: - Health Monitor（每 3 秒）
+    // MARK: - Health Monitor
     
     private func startHealthMonitor(pipeline: TranscriptPipeline) {
         healthTask = Task { [weak self] in
@@ -207,6 +207,7 @@ final class TranscriptOnlyViewModel {
 struct TranscriptOnlyView: View {
     @State private var vm = TranscriptOnlyViewModel()
     @State private var autoScroll = true
+    @State private var showSystemCheck = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -243,6 +244,9 @@ struct TranscriptOnlyView: View {
                 .background(.ultraThinMaterial)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $showSystemCheck) {
+            SystemCheckSheet(language: vm.selectedLanguage)
+        }
     }
     
     // MARK: - Control Bar
@@ -263,6 +267,17 @@ struct TranscriptOnlyView: View {
             .pickerStyle(.menu)
             .frame(width: 200)
             .disabled(vm.isRecording)
+            
+            // ★ 系統檢查按鈕
+            Button {
+                showSystemCheck = true
+            } label: {
+                Image(systemName: "stethoscope")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.borderless)
+            .disabled(vm.isRecording)
+            .help("系統檢查：權限 + 功能診斷")
             
             Spacer()
             
@@ -341,6 +356,9 @@ struct TranscriptOnlyView: View {
                             Text("選擇語言 → 開啟 Zoom/Teams/LINE/WhatsApp → 按「開始會議」")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
+                            Text("提示：按 🩺 按鈕可以先執行系統檢查")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.top, 100)
@@ -408,7 +426,6 @@ struct TranscriptOnlyView: View {
     
     private var statusBar: some View {
         HStack(spacing: 16) {
-            // 錄音指示
             if vm.isRecording {
                 HStack(spacing: 4) {
                     Circle()
@@ -420,7 +437,6 @@ struct TranscriptOnlyView: View {
                 }
             }
             
-            // Dual Stream 標示
             if vm.isDualStream {
                 Text("DUAL")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -430,7 +446,7 @@ struct TranscriptOnlyView: View {
                     .cornerRadius(4)
             }
             
-            // ★ 偵測到的 App 顯示
+            // ★ 偵測到的 App
             if !vm.detectedApp.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "app.connected.to.app.below.fill")
@@ -447,7 +463,6 @@ struct TranscriptOnlyView: View {
             
             Divider().frame(height: 16)
             
-            // 音訊狀態
             audioStatusBadge("遠端(對方)", status: vm.remoteStatus, count: vm.remoteSegmentCount)
             audioStatusBadge("本地(我方)", status: vm.localStatus, count: vm.localSegmentCount)
             
