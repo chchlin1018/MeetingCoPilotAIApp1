@@ -504,10 +504,10 @@ struct MeetingTeleprompterView: View {
                 Spacer()
                 if coordinator.hasDualStream {
                     HStack(spacing: 4) {
-                        Circle().fill(Color.white).frame(width: 5, height: 5)
-                        Text("對方").font(.system(size: 9)).foregroundColor(.white.opacity(0.6))
                         Circle().fill(Color.cyan).frame(width: 5, height: 5)
-                        Text("我方").font(.system(size: 9)).foregroundColor(.cyan.opacity(0.6))
+                        Text("對方").font(.system(size: 9)).foregroundColor(.cyan.opacity(0.6))
+                        Circle().fill(Color.yellow).frame(width: 5, height: 5)
+                        Text("我方").font(.system(size: 9)).foregroundColor(.yellow.opacity(0.6))
                     }
                 }
             }.padding(.horizontal, 12).padding(.top, 8)
@@ -531,13 +531,15 @@ struct MeetingTeleprompterView: View {
 
                         // ★ 即時 Partial Results 顯示（未 final 的文字）
                         if isSessionActive && !coordinator.recentTranscript.isEmpty {
+                            let isLocal = coordinator.recentTranscript.contains("[我方]")
+                            let partialColor: Color = isLocal ? .yellow : .cyan
                             HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: "waveform")
                                     .font(.system(size: 10))
-                                    .foregroundColor(.purple.opacity(0.6))
+                                    .foregroundColor(partialColor.opacity(0.6))
                                 Text(coordinator.recentTranscript)
                                     .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(.purple.opacity(0.5))
+                                    .foregroundColor(partialColor.opacity(0.6))
                                     .lineLimit(2)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -700,7 +702,7 @@ struct MeetingTeleprompterView: View {
     }
 }
 
-// MARK: - Transcript Entry Row
+// MARK: - Transcript Entry Row — ★ 對方=青色 我方=黃色
 struct TranscriptEntryRow: View {
     let entry: TranscriptEntry; let isDualStream: Bool
     var body: some View {
@@ -713,8 +715,8 @@ struct TranscriptEntryRow: View {
             Text(entry.text).font(.system(size: 13)).foregroundColor(textColor).frame(maxWidth: .infinity, alignment: .leading)
         }.padding(.vertical, 2)
     }
-    private var speakerColor: Color { entry.speaker == .remote ? .white : .cyan }
-    private var textColor: Color { entry.speaker == .remote ? .white.opacity(0.85) : .cyan.opacity(0.7) }
+    private var speakerColor: Color { entry.speaker == .remote ? .cyan : .yellow }
+    private var textColor: Color { entry.speaker == .remote ? .cyan.opacity(0.85) : .yellow.opacity(0.8) }
 }
 
 // MARK: - Talking Point Row
