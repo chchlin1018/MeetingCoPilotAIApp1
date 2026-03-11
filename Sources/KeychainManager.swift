@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // KeychainManager.swift
-// MeetingCopilot v4.3.1 — macOS Keychain 安全儲存 + Hardcoded Fallback
+// MeetingCopilot v4.3.1 — APIKeys.swift 優先 + Keychain Fallback
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -59,7 +59,12 @@ enum KeychainManager {
     }
 
     static func load(key: Key) -> String? {
-        // ★ 優先從 Keychain 讀取
+        // ★ 1. 優先從 APIKeys.swift 讀取（本地 hardcoded）
+        if let hardcoded = hardcodedValue(for: key) {
+            return hardcoded
+        }
+
+        // ★ 2. Fallback: 從 Keychain 讀取
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -74,12 +79,11 @@ enum KeychainManager {
             return value
         }
 
-        // ★ Fallback: 從 APIKeys.swift hardcoded 值讀取（開發便利）
-        return hardcodedFallback(for: key)
+        return nil
     }
 
-    /// 從 APIKeys.swift 讀取 hardcoded 值（開發用）
-    private static func hardcodedFallback(for key: Key) -> String? {
+    /// 從 APIKeys.swift 讀取值（有效值才回傳，placeholder 回傳 nil）
+    private static func hardcodedValue(for key: Key) -> String? {
         let value: String
         switch key {
         case .claudeAPIKey:         value = APIKeys.claudeAPIKey
@@ -87,7 +91,7 @@ enum KeychainManager {
         case .notebookLMBridgeURL:  value = APIKeys.notebookLMBridgeURL
         case .notebookLMNotebookId: return nil
         }
-        // 如果還是 placeholder，回傳 nil
+        // placeholder 或空值 → 跳過，走 Keychain
         if value.contains("PASTE_YOUR") || value.isEmpty { return nil }
         return value
     }
