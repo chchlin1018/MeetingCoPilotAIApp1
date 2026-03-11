@@ -1,10 +1,16 @@
 MeetingCopilot 會議準備 Skill
 概述
-Michael Lin（林志錚）的會議準備工作流 Skill。
+Michael Lin（林志錜）的會議準備工作流 Skill。
 核心原則：Notion 是唯一的資料來源（Single Source of Truth）。TXT 只是 App 的載入格式，由 Claude 從 Notion 自動擷取產生。
 
 ★ App 開發現況（v4.3.1 — 2026-03-11）
-架構：18 個 Swift 檔案 + 4 測試
+
+分支策略：
+│ 分支                        │ 用途                              │ Xcode 專案                  │
+│ main                        │ 完整版（18 Swift + AI 全管線）    │ MeetingCopilot.xcodeproj    │
+│ feature/transcript-only     │ 精簡版（6 Swift，純語音辨識）    │ TranscriptOnly.xcodeproj    │
+
+main 分支架構：18 個 Swift 檔案 + 4 測試
 Sources/
 ├── AudioCaptureEngine.swift         # Protocol + 共用型別
 ├── SystemAudioCaptureEngine.swift   # ScreenCaptureKit → remote（對方）
@@ -25,6 +31,17 @@ Sources/
 ├── MeetingPrepView.swift            # 會前準備 UI + TXT + 語言選擇
 ├── DemoDataProvider.swift           # Demo 資料
 └── UsageExample.swift               # 主畫面 + 分色逐字稿 + 會後儲存
+
+feature/transcript-only 分支架構：6 個 Swift 檔案
+TranscriptOnly/
+├── TranscriptOnlyApp.swift          # @main（無 API Key）
+└── TranscriptOnlyView.swift         # UI + ViewModel（直接接 Pipeline）
+Sources/（共用）
+├── AudioCaptureEngine.swift         # Protocol + 型別
+├── SystemAudioCaptureEngine.swift   # ScreenCaptureKit → 對方
+├── MicrophoneCaptureEngine.swift    # AVAudioEngine → 我方
+└── TranscriptPipeline.swift         # 雙串流 + Audio Health
+
 已完成功能
 
 ✅ 雙串流說話者分離（ScreenCaptureKit=對方 / Mic=我方）
@@ -40,6 +57,8 @@ Sources/
 ✅ 字體放大：逐字稿 16pt / AI 卡片 16pt / Partial 15pt
 ✅ 會後報告：AI 摘要 + Action Items + Markdown/TXT/Notion 匯出
 ✅ SwiftData 持久化 + macOS Keychain 安全儲存
+✅ TranscriptOnly 精簡分支（Build & Run 成功，待實測）
+✅ MeetingPrep Skill 文件（本檔案）
 
 已知問題 / 待修
 
@@ -49,13 +68,20 @@ Sources/
 ⚠️ UsageExample.swift 過大（~950 行），應拆分
 ⚠️ Tests 目錄未加入 Xcode Test target
 
-下一步開發（v4.4）
+下一步開發
 
- Claude 動態關鍵字展開（取代靜態對照表）
- Evidence-based Card（AICard 加 evidences + inferenceType）
- 會前準備 Notion 自動同步（Claude 讀 Notion → 產生 TXT → push GitHub）
- Structured Logging / Telemetry
- UsageExample.swift 拆分為多個 View
+即時：TranscriptOnly 實測驗證
+☐ Zoom 會議實測：雙串流辨識正常
+☐ Teams 會議實測：雙串流辨識正常
+☐ 30 分鐘穩定性測試（不 crash）
+☐ 中英文混合辨識測試
+
+後續（v4.4）
+☐ Claude 動態關鍵字展開（取代靜態對照表）
+☐ Evidence-based Card（AICard 加 evidences + inferenceType）
+☐ 會前準備 Notion 自動同步（Claude 讀 Notion → 產生 TXT → push GitHub）
+☐ Structured Logging / Telemetry
+☐ UsageExample.swift 拆分
 
 
 資料流架構
@@ -82,9 +108,15 @@ Sources/
 GitHub Repository
 
 Repo: https://github.com/chchlin1018/MeetingCoPilotAIApp1
+分支：main（完整版）| feature/transcript-only（精簡版）
 本地路徑: ~/Documents/MyProjects/MeetingCopilotApp1/
 MeetingTEXT 資料夾: ~/Documents/MyProjects/MeetingCopilotApp1/MeetingTEXT/
 Pull 指令: cd ~/Documents/MyProjects/MeetingCopilotApp1 && git pull
+
+Xcode 專案
+
+完整版：open MeetingCopilot.xcodeproj（main 分支）
+精簡版：open TranscriptOnly.xcodeproj（feature/transcript-only 分支）
 
 API Keys 管理
 
@@ -231,52 +263,65 @@ NICE|重點|支撐數據|關鍵字
 策略分析
 推送到 GitHub：MeetingTEXT/YYYY-MM-DD_會議名稱.txt
 Step 7：使用者載入 App
-bashcd ~/Documents/MyProjects/MeetingCopilotApp1 && git pull
+cd ~/Documents/MyProjects/MeetingCopilotApp1 && git pull
 App → System Check → 全部通過 → 讀取 TXT → 開始會議
 
 已建立的會議
-會議Notion Page IDNotebookLM IDTXTBiWeekly-Stanley-11Mar26320f154a-6472-815c-8ad0-c214783dfe22ccaeee5e-8971-49e1-801d-2989ded2c61b2026-03-11_BiWeekly-Stanley.txtBiWeekly-Mark-JJ-12Mar26320f154a-6472-813f-bc2c-d98e570ab69651364658-5c30-4b55-8118-5103095ae8d02026-03-12_BiWeekly-Mark-JJ.txt
+│ 會議                      │ Notion Page ID                            │ NotebookLM ID                              │ TXT                                 │
+│ BiWeekly-Stanley-11Mar26  │ 320f154a-6472-815c-8ad0-c214783dfe22      │ ccaeee5e-8971-49e1-801d-2989ded2c61b       │ 2026-03-11_BiWeekly-Stanley.txt    │
+│ BiWeekly-Mark-JJ-12Mar26  │ 320f154a-6472-813f-bc2c-d98e570ab696      │ 51364658-5c30-4b55-8118-5103095ae8d0       │ 2026-03-12_BiWeekly-Mark-JJ.txt    │
 
 Michael 的業務背景
 進行中的案子
 
 MBI Utitech M&A — TECO 併購 + 股權重組（與 Stanley/iVP）
 
-TECO engaged：Michael 與副董事長 + 子公司 GM 談條件中
-交易結構：Abico 先買 20-22% → 轉手 TECO → Abico 留 10-15%
-20% treasury shares → TECO 取得
-個人股東 30-31%：TECO 拿到 20% 後可簽 LOI
-達 51% 後置換經營權 + 預期額外 20%
-預計 4 月中下旬明朗
-
+  TECO engaged：Michael 與副董事長 + 子公司 GM 談條件中
+  交易結構：Abico 先買 20-22% → 轉手 TECO → Abico 留 10-15%
+  20% treasury shares → TECO 取得
+  個人股東 30-31%：TECO 拿到 20% 後可簽 LOI
+  達 51% 後置換經營權 + 預期額外 20%
+  預計 4 月中下旬明朗
 
 John & Jill's — 澳洲蜂蜜品牌台灣市場進入（與 Mark）
 Gamuda Silicon Island — 馬來西亞半導體園區台灣連結（透過 Stanley → Lillian）
 
-Lillian 3/6 回信：想加入 HTFA + 訪台
-建議 mid/late APR 或 5月中（搭配 Computex）會面
-合作模式：consultancy or 讓 Gamuda 自行接洽
-
+  Lillian 3/6 回信：想加入 HTFA + 訪台
+  建議 mid/late APR 或 5月中（搭配 Computex）會面
+  合作模式：consultancy or 讓 Gamuda 自行接洽
 
 YTEC — 先進封裝設備 Penang 合作
 Johor DC — 資料中心 + 水處理 + Digital Twin
 
-分兩期：第一期 ~400MW，第二期 ~300MW
-Stanley 跟進電力 + 光纖落地時間
-Michael 對接 power cable + fiber 台灣 license 持有者
-
+  分兩期：第一期 ~400MW，第二期 ~300MW
+  Stanley 跟進電力 + 光纖落地時間
+  Michael 對接 power cable + fiber 台灣 license 持有者
 
 John 再生水設備 — Vendor ready to go
 
-需 John advice 如何推進
-提議 APR/May 新加坡碰面 + 見 SG DC operators
-
-
+  需 John advice 如何推進
+  提議 APR/May 新加坡碰面 + 見 SG DC operators
 
 關鍵聯絡人
-姓名公司/角色關係Stanley ChiniVP/TCA Partner合作夥伴，BiWeeklyMarkJohn & Jill's Founder合作夥伴，BiWeeklyLillian LungGamuda ED透過 Stanley 介紹TeresaTECO 副董事長報告M&A 接洽JasonTECO M&A HeadM&A 決策BredUtitech CFO 12%股權談判SeanUtitech VP 6%股權談判WilliamUtitech Chairman 24%股權談判John新加坡 DC / 水處理合作夥伴
+│ 姓名     │ 公司/角色              │ 關係           │
+│ Stanley  │ iVP/TCA Partner         │ 合作夥伴，BiWeekly │
+│ Mark     │ John & Jill's Founder   │ 合作夥伴，BiWeekly │
+│ Lillian  │ Gamuda ED               │ 透過 Stanley 介紹 │
+│ Teresa   │ TECO 副董事長           │ 報告 M&A 接洽  │
+│ Jason    │ TECO M&A Head           │ M&A 決策      │
+│ Bred     │ Utitech CFO 12%         │ 股權談判      │
+│ Sean     │ Utitech VP 6%           │ 股權談判      │
+│ William  │ Utitech Chairman 24%    │ 股權談判      │
+│ John     │ 新加坡 DC / 水處理      │ 合作夥伴      │
+
 0311 Stanley 會議 Action Items
-#Action負責人時間1UTT 20% 股權收購進度跟進Michael4月中下旬2Lillian/Gamuda HTFA 入會 + 5月中會面安排Michael5月中3Johor DC 電力 + 光纖落地時間Stanley年內4Computex 日期確認 + 5月中會面協調Michael查日期5Stanley 4月下旬或5月中訪台Stanley4-5月6MY energy 公司 × 槟城/柔佛 DC power/fiberMichael持續
+│ #  │ Action                                       │ 負責人   │ 時間         │
+│ 1  │ UTT 20% 股權收購進度跟進                   │ Michael  │ 4月中下旬     │
+│ 2  │ Lillian/Gamuda HTFA 入會 + 5月中會面安排    │ Michael  │ 5月中         │
+│ 3  │ Johor DC 電力 + 光纖落地時間                │ Stanley  │ 年內         │
+│ 4  │ Computex 日期確認 + 5月中會面協調           │ Michael  │ 查日期       │
+│ 5  │ Stanley 4月下旬或5月中訪台                 │ Stanley  │ 4-5月        │
+│ 6  │ MY energy 公司 × 槟城/柔佛 DC power/fiber  │ Michael  │ 持續         │
 
 Email Draft 策略
 Engagement / 顧問費用談判措辭
@@ -289,38 +334,72 @@ Engagement / 顧問費用談判措辭
 
 
 App 設定（一次性）
-欄位說明Claude API KeyAPIKeys.swift（優先）或 KeychainNotion API KeyAPIKeys.swift（優先）或 KeychainNotebookLM Notebook ID每場會議在 TXT 設定NotebookLM Bridge URLhttp://localhost:3210
+│ 欄位                    │ 說明                                    │
+│ Claude API Key         │ APIKeys.swift（優先）或 Keychain        │
+│ Notion API Key         │ APIKeys.swift（優先）或 Keychain        │
+│ NotebookLM Notebook ID │ 每場會議在 TXT 設定                    │
+│ NotebookLM Bridge URL  │ http://localhost:3210                    │
+
 開會前檢查清單
 
-git pull 拉最新 code
-確認 APIKeys.swift 有填入真實 key
-⌘R Build & Run
-跑 System Check → 全部綠色 ✅
-開 Zoom/Teams → 再按「開始會議」
+完整版（main 分支）：
+☐ git pull 拉最新 code
+☐ 確認 APIKeys.swift 有填入真實 key
+☐ ⌘R Build & Run
+☐ 跑 System Check → 全部綠色 ✅
+☐ 開 Zoom/Teams → 再按「開始會議」
+
+精簡版（feature/transcript-only 分支）：
+☐ git checkout feature/transcript-only && git pull
+☐ open TranscriptOnly.xcodeproj
+☐ ⌘R Build & Run
+☐ 開 Zoom/Teams → 按「開始會議」（不需要 API Key）
 
 權限
 
-System Settings → Privacy & Security → 螢幕與系統錄音 → MeetingCopilot: 開啟
+System Settings → Privacy & Security → 螢幕與系統錄音 → MeetingCopilot / TranscriptOnly: 開啟
 每次 Xcode 重新 build 後可能需要重新授權 TCC
 
 重要 Git 指令
-bash# 停止追蹤 APIKeys.swift（保護 key 不推上 GitHub）
+# 停止追蹤 APIKeys.swift（保護 key 不推上 GitHub）
 git rm --cached Sources/APIKeys.swift
 git commit -m "stop tracking APIKeys.swift"
 git push
 
 # 重置 ScreenCaptureKit TCC 權限（build 後權限失效時）
 tccutil reset ScreenCapture com.RealityMatrix.MeetingCopilot
+# 或精簡版
+tccutil reset ScreenCapture com.RealityMatrix.TranscriptOnly
+
+# 切換分支
+git checkout main                      # 完整版
+git checkout feature/transcript-only   # 精簡版
 
 開發歷史摘要
-v4.3.1（2026-03-11）— 6 commits
-Commit內容d92e8dbfix: KeychainManager.shared → .load（修 3 build errors）9e4dcbbfix: SystemCheckView 加入 Xcode project target6a886fdimprove: TranscriptPipeline 錯誤訊息分類6877c9ffeat: Live Partial Results + 正在聆聽1243672fix: recentTranscript 雙串流空白 bugc5eb66bstyle: 對方=cyan 我方=yellow
-後續 commits：
 
+2026-03-11 晚間 — feature/transcript-only 分支
+│ 項目     │ 內容                                                          │
+│ 新分支   │ feature/transcript-only（從 main 建立）                       │
+│ 新專案   │ TranscriptOnly.xcodeproj（獨立 Xcode 專案）                 │
+│ 新檔案   │ TranscriptOnlyApp.swift, TranscriptOnlyView.swift             │
+│ 設定檔   │ Info.plist, TranscriptOnly.entitlements, Assets.xcassets       │
+│ 結果     │ ✅ Build & Run 成功，UI 正常顯示                               │
+
+v4.3.1（2026-03-11）— 6 commits
+│ Commit    │ 內容                                                         │
+│ d92e8db   │ fix: KeychainManager.shared → .load（修 3 build errors）     │
+│ 9e4dcbb   │ fix: SystemCheckView 加入 Xcode project target              │
+│ 6a886fd   │ improve: TranscriptPipeline 錯誤訊息分類                    │
+│ 6877c9f   │ feat: Live Partial Results + 正在聆聽                        │
+│ 1243672   │ fix: recentTranscript 雙串流空白 bug                        │
+│ c5eb66b   │ style: 對方=cyan 我方=yellow                                │
+
+後續 commits：
 APIKeys.swift + .gitignore + Keychain fallback
 字體放大 + Teleprompter 開場 TP
-BiWeekly-Stanley TXT 更新
+BiWeekly-Stanley TXT + BiWeekly-Mark-JJ TXT
 README.md + TODO.md 更新至 v4.3.1
+MeetingPrep-SKILL.md 更新
 
 
-Updated: 2026-03-11 | MeetingCopilot v4.3.1 | Reality Matrix Inc.
+Updated: 2026-03-11 | MeetingCopilot v4.3.1 + TranscriptOnly v1.0 | Reality Matrix Inc.
