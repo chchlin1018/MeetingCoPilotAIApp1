@@ -1,0 +1,68 @@
+# MeetingCopilot 系統檢查
+# 開會前用此檔案驗證所有連接正常
+
+[MEETING]
+title=System-Check
+type=Other
+duration=5
+language=zh-TW
+
+[SOURCES]
+notion_page_id=320f154a-6472-804f-a226-c3694c1bb319
+notion_page_url=
+notebooklm_notebook_id=
+notebooklm_bridge_url=http://localhost:3210
+
+[GOALS]
+驗證麥克風和語音辨識正常
+驗證系統音訊擷取正常（雙串流）
+驗證 Claude AI 回應正常
+驗證 Notion 連接正常
+
+[ATTENDEES]
+Michael Lin - System Check
+
+[QA_MY_QUESTIONS]
+
+Q: 這是系統測試，請回答：MeetingCopilot 連接正常
+K: 測試, 系統, 連接, test, system
+A: MeetingCopilot 系統測試通過
+
+Q: What is the current date?
+K: date, today, 日期
+A: Claude should respond with today's date
+
+[QA_THEIR_QUESTIONS]
+
+Q: 你能聽到我說話嗎？
+K: 聽到, 麥克風, 測試, microphone
+A: 如果看到這個問題被偵測，表示語音辨識正在工作
+
+Q: Can you hear me speaking in English?
+K: hear, English, test, speaking
+A: If this is detected, speech recognition works for English too
+
+[TP]
+MUST|麥克風測試|說「測試一二三」看逐字稿是否出現|測試, 麥克風, 語音
+MUST|雙串流測試|確認 header 顯示「雙串流」和綠色啟動通知|雙串流, 系統音訊, ScreenCaptureKit
+MUST|Claude AI 測試|在 Ask AI 欄位輸入「test」看是否回應|Claude, AI, 測試
+SHOULD|Notion 連接測試|確認資料來源區顯示 Notion ✅|Notion, 連接
+SHOULD|中英文切換測試|說中文和英文各一句看辨識結果|中文, 英文, 語言
+NICE|藍牙耳機測試|用 AirPods 說話確認麥克風正常|AirPods, 藍牙, 耳機
+
+[PREANALYSIS]
+系統檢查清單：
+1. 螢幕錄製權限：System Settings → Privacy & Security → Screen Recording → MeetingCopilot ✅
+2. 麥克風權限：System Settings → Privacy & Security → Microphone → MeetingCopilot ✅
+3. 語音辨識權限：System Settings → Privacy & Security → Speech Recognition → MeetingCopilot ✅
+4. Claude API Key：App 設定頁面 → 已存 Keychain ✅
+5. Notion API Key：App 設定頁面 → 已存 Keychain ✅
+
+測試步驟：
+1. 載入此檔案 → 點「開始會議」
+2. 確認啟動通知：✅ 雙串流啟動成功
+3. 對麥克風說「測試一二三」→ 左側 LIVE TRANSCRIPT 應出現文字
+4. 在 Ask AI 欄位輸入「test」→ 中間 AI TELEPROMPTER 應出現回應
+5. 確認右側 SESSION STATS 的 API Key 顯示 OK
+6. 確認 SYSTEM HEALTH 的 CPU/Memory/Network 顯示正常
+7. 通過以上全部 → 系統就緒，可以開始真正的會議
