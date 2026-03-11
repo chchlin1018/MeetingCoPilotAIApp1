@@ -27,6 +27,7 @@
 		BB0000000000000000000012 /* NotionRetrievalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000015; };
 		BB0000000000000000000013 /* SystemMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000016; };
 		BB0000000000000000000014 /* PostMeetingReportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000017; };
+		BB0000000000000000000015 /* SystemCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0000000000000000000018; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		FF0000000000000000000015 /* NotionRetrievalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotionRetrievalService.swift; sourceTree = "<group>"; };
 		FF0000000000000000000016 /* SystemMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMonitor.swift; sourceTree = "<group>"; };
 		FF0000000000000000000017 /* PostMeetingReportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostMeetingReportService.swift; sourceTree = "<group>"; };
+		FF0000000000000000000018 /* SystemCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCheckView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +96,7 @@
 				FF0000000000000000000014,
 				FF0000000000000000000016,
 				FF0000000000000000000017,
+				FF0000000000000000000018,
 				FF0000000000000000000011,
 				FF0000000000000000000008,
 			);
@@ -206,6 +209,7 @@
 				BB0000000000000000000011,
 				BB0000000000000000000013,
 				BB0000000000000000000014,
+				BB0000000000000000000015,
 				BB000000000000000000000E,
 				BB0000000000000000000008,
 			);
