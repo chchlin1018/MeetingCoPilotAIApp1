@@ -8,8 +8,8 @@ duration=60
 language=zh-TW
 
 [SOURCES]
-notion_page_id=
-notion_page_url=
+notion_page_id=320f154a-6472-813f-bc2c-d98e570ab696
+notion_page_url=https://www.notion.so/PreMeeting-BiWeekly-Mark-J-J-12-Mar-2026-320f154a6472813fbc2cd98e570ab696
 notebooklm_notebook_id=
 notebooklm_bridge_url=http://localhost:3210
 
