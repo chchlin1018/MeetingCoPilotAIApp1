@@ -32,3 +32,6 @@ bridge/browser-data/
 # IDE
 .vscode/
 .idea/
+
+# ★ API Keys — 絕對不要推上去
+Sources/APIKeys.swift

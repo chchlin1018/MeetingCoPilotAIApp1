@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // KeychainManager.swift
-// MeetingCopilot v4.3 — macOS Keychain 安全儲存
+// MeetingCopilot v4.3.1 — macOS Keychain 安全儲存 + Hardcoded Fallback
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -40,7 +40,7 @@ enum KeychainManager {
         }
     }
 
-    // ★ Bundle ID 更新為 com.RealityMatrix
+    // ★ Bundle ID
     private static let service = "com.RealityMatrix.MeetingCopilot"
 
     @discardableResult
@@ -59,6 +59,7 @@ enum KeychainManager {
     }
 
     static func load(key: Key) -> String? {
+        // ★ 優先從 Keychain 讀取
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -68,8 +69,27 @@ enum KeychainManager {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        if status == errSecSuccess, let data = result as? Data,
+           let value = String(data: data, encoding: .utf8), !value.isEmpty {
+            return value
+        }
+
+        // ★ Fallback: 從 APIKeys.swift hardcoded 值讀取（開發便利）
+        return hardcodedFallback(for: key)
+    }
+
+    /// 從 APIKeys.swift 讀取 hardcoded 值（開發用）
+    private static func hardcodedFallback(for key: Key) -> String? {
+        let value: String
+        switch key {
+        case .claudeAPIKey:         value = APIKeys.claudeAPIKey
+        case .notionAPIKey:         value = APIKeys.notionAPIKey
+        case .notebookLMBridgeURL:  value = APIKeys.notebookLMBridgeURL
+        case .notebookLMNotebookId: return nil
+        }
+        // 如果還是 placeholder，回傳 nil
+        if value.contains("PASTE_YOUR") || value.isEmpty { return nil }
+        return value
     }
 
     @discardableResult
