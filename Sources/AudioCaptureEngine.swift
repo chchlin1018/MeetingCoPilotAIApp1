@@ -2,15 +2,11 @@
 // AudioCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Core Audio Capture Protocol & Types
 // ═══════════════════════════════════════════════════════════════════════════
-//
-// Platform: macOS 14.0+
-// Framework: ScreenCaptureKit, AVFoundation, Speech
-// Supported Apps: 11 (Teams/Zoom/Meet/Webex/Slack/LINE/WhatsApp/Telegram/Discord/FaceTime)
-// ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
 import AVFoundation
 import Speech
+import ScreenCaptureKit
 
 // MARK: - 音訊擷取引擎 Protocol
 
@@ -91,7 +87,7 @@ struct TranscriptSegment: Sendable, Identifiable {
 // MARK: - 會議/通話應用程式識別（11 個 App）
 
 enum MeetingApp: String, CaseIterable, Sendable {
-    // ── 會議軟體 (Tier 1) ──
+    // ── 會議軟體 (Tier 0) ──
     case microsoftTeams = "com.microsoft.teams2"
     case zoom           = "us.zoom.xos"
     case googleMeet     = "com.google.Chrome"
@@ -124,26 +120,95 @@ enum MeetingApp: String, CaseIterable, Sendable {
         }
     }
     
-    /// ★ 偵測優先級（數字越小優先級越高）
-    /// Tier 0: Zoom/Teams/Webex — 專業會議軟體，最優先
-    /// Tier 1: Google Meet — 瀏覽器會議
-    /// Tier 2: Slack/Discord — 團隊協作
-    /// Tier 3: LINE/WhatsApp/Telegram/FaceTime — 通訊軟體
     var detectionPriority: Int {
         switch self {
-        case .microsoftTeams, .zoom, .webex:
-            return 0
-        case .googleMeet:
-            return 1
-        case .slack, .discord:
-            return 2
-        case .line, .whatsapp, .whatsappNative, .telegram, .facetime:
-            return 3
+        case .microsoftTeams, .zoom, .webex: return 0
+        case .googleMeet: return 1
+        case .slack, .discord: return 2
+        case .line, .whatsapp, .whatsappNative, .telegram, .facetime: return 3
         }
     }
     
     static func from(bundleID: String) -> MeetingApp? {
         allCases.first { $0.bundleIdentifier == bundleID }
+    }
+}
+
+// MARK: - ★ 偵測結果（用於 App 選擇 UI）
+
+struct DetectedAppInfo: Identifiable, Sendable {
+    let id = UUID()
+    let app: MeetingApp
+    let windowArea: CGFloat
+    let priority: Int
+    
+    var displayName: String { app.displayName }
+    
+    var tierLabel: String {
+        switch priority {
+        case 0: return "會議"
+        case 1: return "瀏覽器"
+        case 2: return "協作"
+        case 3: return "通訊"
+        default: return ""
+        }
+    }
+}
+
+// MARK: - ★ 靜態工具：掃描活躍 App
+
+enum AppScanner {
+    /// 掃描當前所有有活躍視窗的支援 App
+    static func scanActiveApps() async -> [DetectedAppInfo] {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            var results: [DetectedAppInfo] = []
+            
+            for app in content.applications {
+                guard let meetingApp = MeetingApp.from(bundleID: app.bundleIdentifier) else { continue }
+                
+                let activeWindows = content.windows.filter { w in
+                    w.owningApplication?.bundleIdentifier == app.bundleIdentifier
+                    && w.isOnScreen
+                    && w.frame.width > 200 && w.frame.height > 200
+                }
+                
+                guard !activeWindows.isEmpty else { continue }
+                let maxArea = activeWindows.map { $0.frame.width * $0.frame.height }.max() ?? 0
+                
+                results.append(DetectedAppInfo(
+                    app: meetingApp,
+                    windowArea: maxArea,
+                    priority: meetingApp.detectionPriority
+                ))
+            }
+            
+            // 檢查 Google Meet in browser
+            let browserBundles = ["com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac", "org.mozilla.firefox"]
+            for app in content.applications {
+                if browserBundles.contains(app.bundleIdentifier) {
+                    for window in content.windows where window.owningApplication?.bundleIdentifier == app.bundleIdentifier {
+                        if let title = window.title,
+                           (title.contains("Meet") || title.contains("meet.google.com")) {
+                            let area = window.frame.width * window.frame.height
+                            // 避免重複加入 Chrome
+                            if !results.contains(where: { $0.app == .googleMeet }) {
+                                results.append(DetectedAppInfo(app: .googleMeet, windowArea: area, priority: 1))
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+            
+            // 排序：優先級高 → 視窗大
+            return results.sorted { a, b in
+                if a.priority != b.priority { return a.priority < b.priority }
+                return a.windowArea > b.windowArea
+            }
+        } catch {
+            return []
+        }
     }
 }
 
@@ -156,22 +221,28 @@ struct AudioCaptureConfiguration: Sendable {
     let enablePartialResults: Bool
     let bufferSize: AVAudioFrameCount
     let autoDetectMeetingApp: Bool
+    let targetApp: MeetingApp?    // ★ 指定目標 App（nil = 自動偵測）
     
     static let `default` = AudioCaptureConfiguration(
-        sampleRate: 48000.0,
-        channelCount: 1,
+        sampleRate: 48000.0, channelCount: 1,
         speechLocale: Locale(identifier: "zh-TW"),
-        enablePartialResults: true,
-        bufferSize: 1024,
-        autoDetectMeetingApp: true
+        enablePartialResults: true, bufferSize: 1024,
+        autoDetectMeetingApp: true, targetApp: nil
     )
     
     static let english = AudioCaptureConfiguration(
-        sampleRate: 48000.0,
-        channelCount: 1,
+        sampleRate: 48000.0, channelCount: 1,
         speechLocale: Locale(identifier: "en-US"),
-        enablePartialResults: true,
-        bufferSize: 1024,
-        autoDetectMeetingApp: true
+        enablePartialResults: true, bufferSize: 1024,
+        autoDetectMeetingApp: true, targetApp: nil
     )
+    
+    /// 建立指定 App 的設定
+    func withTarget(_ app: MeetingApp) -> AudioCaptureConfiguration {
+        AudioCaptureConfiguration(
+            sampleRate: sampleRate, channelCount: channelCount,
+            speechLocale: speechLocale, enablePartialResults: enablePartialResults,
+            bufferSize: bufferSize, autoDetectMeetingApp: false, targetApp: app
+        )
+    }
 }
