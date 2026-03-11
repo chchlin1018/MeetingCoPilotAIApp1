@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.3 — SwiftUI Main View
-// Updated: Audio health notifications in header bar
+// Updated: Audio health notifications in header bar + Live partial transcript
 
 import SwiftUI
 import AppKit
@@ -495,7 +495,7 @@ struct MeetingTeleprompterView: View {
         }.padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.1)).cornerRadius(4)
     }
 
-    // MARK: Transcript / Teleprompter / Sidebar (unchanged)
+    // MARK: ★ Transcript Panel（含即時 Partial Results）
 
     private var transcriptPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -513,15 +513,36 @@ struct MeetingTeleprompterView: View {
             }.padding(.horizontal, 12).padding(.top, 8)
             ScrollViewReader { proxy in
                 ScrollView {
-                    if coordinator.transcriptEntries.isEmpty {
-                        Text("等待會議音訊...").font(.system(size: 13)).foregroundColor(.gray.opacity(0.4))
-                            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if coordinator.transcriptEntries.isEmpty && !isSessionActive {
+                            Text("等待會議音訊...").font(.system(size: 13)).foregroundColor(.gray.opacity(0.4))
+                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        } else if coordinator.transcriptEntries.isEmpty && isSessionActive {
+                            Text("正在聆聽...").font(.system(size: 13)).foregroundColor(.gray.opacity(0.4))
+                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        // 已確認的逐字稿（isFinal entries）
                         LazyVStack(alignment: .leading, spacing: 4) {
                             ForEach(coordinator.transcriptEntries) { entry in
                                 TranscriptEntryRow(entry: entry, isDualStream: coordinator.hasDualStream).id(entry.id)
                             }
-                        }.padding(12)
+                        }.padding(.horizontal, 12)
+
+                        // ★ 即時 Partial Results 顯示（未 final 的文字）
+                        if isSessionActive && !coordinator.recentTranscript.isEmpty {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.purple.opacity(0.6))
+                                Text(coordinator.recentTranscript)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundColor(.purple.opacity(0.5))
+                                    .lineLimit(2)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .id("live-partial")
+                        }
                     }
                 }
                 .onChange(of: coordinator.transcriptEntries.count) { _, _ in
@@ -529,9 +550,14 @@ struct MeetingTeleprompterView: View {
                         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
+                .onChange(of: coordinator.recentTranscript) { _, _ in
+                    withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo("live-partial", anchor: .bottom) }
+                }
             }
         }.background(Color(hex: "0D0D14"))
     }
+
+    // MARK: Teleprompter / Sidebar
 
     private var teleprompterPanel: some View {
         VStack(spacing: 0) {
