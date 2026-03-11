@@ -78,6 +78,9 @@ struct MeetingPrepView: View {
     @State private var notebookLMNotebookId: String = ""
     @State private var notebookLMBridgeUrl: String = "http://localhost:3210"
 
+    // ★ 系統檢查 Sheet
+    @State private var showSystemCheck = false
+
     private let meetingTypes = [
         "Sales Proposal", "Board Meeting", "Client Presentation",
         "Interview", "Review Meeting", "1-on-1", "Team Standup", "Other"
@@ -125,6 +128,11 @@ struct MeetingPrepView: View {
         }
         .background(Color(hex: "0A0A0F"))
         .preferredColorScheme(.dark)
+        // ★ 系統檢查 Sheet
+        .sheet(isPresented: $showSystemCheck) {
+            SystemCheckView()
+                .frame(width: 660, height: 560)
+        }
     }
 
     // MARK: Header
@@ -139,6 +147,15 @@ struct MeetingPrepView: View {
             if !statusMessage.isEmpty {
                 Text(statusMessage).font(.system(size: 11)).foregroundColor(.green).transition(.opacity)
             }
+
+            // ★ 系統檢查按鈕
+            Button(action: { showSystemCheck = true }) {
+                HStack(spacing: 4) { Image(systemName: "stethoscope"); Text("系統檢查") }
+            }
+            .buttonStyle(.plain).font(.system(size: 12)).foregroundColor(.orange)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Color.orange.opacity(0.15)).cornerRadius(4)
+
             Button(action: loadFromFile) {
                 HStack(spacing: 4) { Image(systemName: "folder.badge.plus"); Text("讀取") }
             }
