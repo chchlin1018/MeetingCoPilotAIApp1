@@ -126,6 +126,8 @@ actor TranscriptPipeline {
     func start(config: AudioCaptureConfiguration = .default) async throws {
         var systemOK = false
         var micOK = false
+        var systemError: Error?
+        var micError: Error?
 
         let sysEngine = SystemAudioCaptureEngine(configuration: config)
         do {
@@ -135,6 +137,7 @@ actor TranscriptPipeline {
             remoteEngineStarted = true
             print("🎤 DualStream: SystemAudio (remote) started")
         } catch {
+            systemError = error
             print("⚠️ DualStream: SystemAudio failed — \(error.localizedDescription)")
         }
 
@@ -146,6 +149,7 @@ actor TranscriptPipeline {
             localEngineStarted = true
             print("🎤 DualStream: Microphone (local) started")
         } catch {
+            micError = error
             print("⚠️ DualStream: Microphone failed — \(error.localizedDescription)")
         }
 
@@ -160,19 +164,47 @@ actor TranscriptPipeline {
             hasDualStream = false
             activeEngineType = .systemAudio
             captureState = .capturing
-            _startupMessage = "⚠️ 僅系統音訊啟動，麥克風權限未授權"
+            _startupMessage = "⚠️ 僅系統音訊啟動，\(describeError(micError, fallback: "麥克風權限未授權"))"
             startRemoteConsumer()
         } else if micOK {
             hasDualStream = false
             activeEngineType = .microphone
             captureState = .capturing
-            _startupMessage = "⚠️ 僅麥克風啟動，系統音訊權限未授權（需在系統設定開啟螢幕錄製）"
+            _startupMessage = "⚠️ 僅麥克風啟動，\(describeError(systemError, fallback: "系統音訊無法啟動"))"
             startLocalConsumer()
         } else {
+            let sysDesc = describeError(systemError, fallback: "系統音訊無法啟動")
+            let micDesc = describeError(micError, fallback: "麥克風無法啟動")
             captureState = .error(.engineStartFailed("所有音訊引擎都無法啟動"))
-            _startupMessage = "❌ 音訊啟動失敗！請檢查螢幕錄製和麥克風權限"
+            _startupMessage = "❌ 音訊啟動失敗！\(sysDesc)；\(micDesc)"
             throw AudioCaptureError.engineStartFailed("所有音訊引擎都無法啟動")
         }
+    }
+
+    // ★ 根據實際錯誤類型產生使用者友善的訊息
+    private func describeError(_ error: Error?, fallback: String) -> String {
+        guard let error = error else { return fallback }
+
+        // 優先檢查 AudioCaptureError 類型
+        if let captureError = error as? AudioCaptureError {
+            switch captureError {
+            case .noAudioSourceFound:
+                return "找不到會議 App（請先開啟 Teams / Zoom / Google Meet 並加入會議）"
+            case .permissionDenied:
+                return "權限未授權（需在系統設定 → 螢幕與系統錄音 開啟）"
+            case .speechRecognizerUnavailable:
+                return "語音辨識不可用（請檢查網路或語言設定）"
+            case .engineStartFailed(let detail):
+                return "引擎啟動失敗：\(detail)"
+            case .captureInterrupted(let reason):
+                return "擷取中斷：\(reason)"
+            case .configurationFailed(let detail):
+                return "設定錯誤：\(detail)"
+            }
+        }
+
+        // 其他未知錯誤
+        return "\(error.localizedDescription)"
     }
 
     // ═ Stop ═
