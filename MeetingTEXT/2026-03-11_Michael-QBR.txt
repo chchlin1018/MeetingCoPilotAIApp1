@@ -1,0 +1,82 @@
+# MeetingCopilot 會前準備檔案
+# 可直接用文字編輯器修改此檔案
+
+[MEETING]
+title=Michael's QBR 11 Mar 2026
+type=Sales Proposal
+duration=60
+language=zh-TW
+
+[SOURCES]
+notion_page_id=
+notion_page_url=
+notebooklm_notebook_id=
+notebooklm_bridge_url=http://localhost:3210
+
+[GOALS]
+取得 UMC Digital Twin PoC 預算核准
+確認技術架構方向（OpenUSD + Omniverse）
+建立 Q2 導入時程共識
+強化與 AVEVA 的差異化定位
+
+[ATTENDEES]
+Kevin Chen - VP Manufacturing, UMC
+Lisa Wang - IT Director, UMC
+Michael Lin - CEO, Reality Matrix
+
+[QA_MY_QUESTIONS]
+# 我方可能想問的問題（主動提問）
+# 格式: Q: 問題 / K: 關鍵字 / A: 預期答案/目的
+
+Q: UMC 目前的 OEE 監控方式是什麼？
+K: OEE, 監控, 現況
+A: 了解現有痛點，作為提案切入點
+
+Q: Q2 導入時程有沒有硬性 deadline？
+K: 時程, deadline, Q2
+A: 確認導入緊迫度，決定推進策略
+
+Q: IT 部門對雲端部署的態度？
+K: 雲端, 部署, IT, 安全
+A: 評估是否需要 on-premise 方案
+
+[QA_THEIR_QUESTIONS]
+# 對方可能發問的問題（防禦準備）
+# 格式: Q: 問題 / K: 關鍵字 / A: 建議回答
+
+Q: ROI 怎麼算？投資回收期多久？
+K: ROI, 投資回收, 回收期
+A: 單線 $450K/yr 節省，4 個月回收。TSMC CoWoS 案例 OEE +2.1%
+
+Q: 跟 AVEVA 有什麼不同？
+K: AVEVA, 差異, 比較, 優勢
+A: IDTF 是開源架構，無 vendor lock-in。支援 OpenUSD 標準，AVEVA 不支援。導入成本低 60%
+
+Q: 資安合規怎麼處理？
+K: 資安, 合規, ISO, SEMI
+A: 支援 ISO 27001 + SEMI E187。台灣 GCP 機房，資料不出境
+
+Q: PoC 範圍和時程？
+K: PoC, 範圍, 時程, 導入
+A: 單線先行，3 個月 PoC。1月啟動 → 3月交付 → Q2 Pilot
+
+Q: 你們的團隊規模？能支撑多大的導入？
+K: 團隊, 規模, 能力
+A: 核心團隊 8 人 + 合作夥伴網絡。已服務過 TSMC、聯電等大型導入
+
+Q: 定價模式？
+K: 定價, 費用, 成本
+A: PoC 階段 $120K（含硬體 + 軟體 + 導入）。正式導入按線數計價
+
+[TP]
+MUST|ROI 預估與回收時程|單線 $450K/yr 節省，4 個月回收|ROI, 投資, 回收, 節省
+MUST|資安合規方案（Kevin 關注）|ISO 27001 + SEMI E187 + 台灣 GCP|資安, ISO, SEMI, GCP, 合規
+SHOULD|Q1 導入時程確認|1月啟動 → 3月 PoC 交付 → Q2 Pilot|時程, Q1, PoC, 交付, Pilot
+SHOULD|TSMC 先進封裝成功案例|TSMC CoWoS 產線 PoC，OEE +2.1%|TSMC, CoWoS, OEE, 案例
+NICE|OpenUSD 技術優勢|NVIDIA Omniverse 原生支援，未來 interoperability|OpenUSD, Omniverse, NVIDIA
+NICE|與 AVEVA 差異化定位|開源 vs 封閉，導入成本低 60%|AVEVA, 開源, 差異
+
+[PREANALYSIS]
+UMC 2025 Q4 財報顯示先進製程產能利用率 92%，Digital Twin 可提升至 94-95%。
+Kevin 過去對 AVEVA 的導入經驗不佳（超時超預算），對新廠商持謹慎態度。
+建議策略：強調「小規模先行」和「無風險試用」降低決策門檻。
