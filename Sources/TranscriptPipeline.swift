@@ -252,7 +252,7 @@ actor TranscriptPipeline {
     // ═ Process Segment ═
 
     private func processSegment(_ segment: TranscriptSegment, speaker: SpeakerSource) {
-        // ★ 更新音訊健康追蹤
+        // ★ 更新音訊健康追蹤 + 保存即時 partial text
         switch speaker {
         case .remote:
             remoteTranscript = segment.text
@@ -277,7 +277,13 @@ actor TranscriptPipeline {
         }
 
         fullTranscript = buildMergedTranscript()
-        recentTranscript = String(fullTranscript.suffix(80))
+
+        // ★ FIX: recentTranscript 直接用當前 segment 的 partial text
+        // 不再依賴 fullTranscript（雙串流且無 isFinal 時 fullTranscript 為空）
+        if segment.text.count > 3 {
+            let label = hasDualStream ? "[\(speaker == .remote ? "對方" : "我方")] " : ""
+            recentTranscript = "\(label)\(String(segment.text.suffix(80)))"
+        }
 
         guard segment.text.count > 5 else { return }
 
@@ -298,7 +304,17 @@ actor TranscriptPipeline {
 
     private func buildMergedTranscript() -> String {
         if hasDualStream {
-            return transcriptEntries.map { "[\($0.speakerLabel)] \($0.text)" }.joined(separator: "\n")
+            // 合併已確認的逐字稿 + 當前 partial text
+            var merged = transcriptEntries.map { "[\($0.speakerLabel)] \($0.text)" }.joined(separator: "\n")
+            // ★ 加入當前未 final 的 partial text，讓 fullTranscript 不為空
+            var partials: [String] = []
+            if !remoteTranscript.isEmpty { partials.append("[對方] \(remoteTranscript)") }
+            if !localTranscript.isEmpty { partials.append("[我方] \(localTranscript)") }
+            if !partials.isEmpty {
+                if !merged.isEmpty { merged += "\n" }
+                merged += partials.joined(separator: "\n")
+            }
+            return merged
         } else {
             return remoteTranscript.isEmpty ? localTranscript : remoteTranscript
         }
