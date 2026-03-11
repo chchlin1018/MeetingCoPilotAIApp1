@@ -28,26 +28,77 @@
 - [x] MeetingPrep Skill 文件
 
 ### feature/transcript-only — 精簡語音辨識測試分支
-- [x] TranscriptOnly.xcodeproj（獨立 Xcode 專案，6 Swift 檔案）
+- [x] TranscriptOnly.xcodeproj（獨立 Xcode 專案，7 Swift 檔案）
 - [x] TranscriptOnlyView.swift（UI + ViewModel 直接接 Pipeline）
+- [x] SystemCheckSheet.swift（7 項系統檢查：權限 + 功能診斷）
 - [x] Build & Run 成功，推送到 GitHub
 
 ### 支援的 App（5 → 11 個）
 - [x] 原有 5 個：Teams, Zoom, Google Meet, Webex, Slack
-- [x] **新增 6 個**：LINE, WhatsApp, WhatsApp (Native), Telegram, Discord, FaceTime
+- [x] 新增 6 個：LINE, WhatsApp, WhatsApp (Native), Telegram, Discord, FaceTime
 - [x] MeetingApp enum 更新（AudioCaptureEngine.swift）
-- [x] 錯誤訊息更新：含 LINE/WhatsApp 提示
+- [x] 偵測到的 App 名稱顯示在 UI 狀態列（cyan badge）
+- [x] 啟動訊息含 App 名稱（如「✅ 雙串流啟動成功：LINE（對方）+ 麥克風（我方）」）
+
+### 動態音訊格式修復
+- [x] 移除預設 48kHz 固定格式 audio converter（修復 -10877 錯誤）
+- [x] 新增 Direct Append 策略（讓 Apple Speech 自行處理 resampling）
+- [x] 動態格式偵測 + 三層容錯（direct → dynamic converter → raw append）
+- [x] Debug logging（🔊 格式資訊 / ⚠️ 轉換錯誤 / 🔄 重啟）
+
+---
+
+## 🔬 TranscriptOnly 實測結果（2026-03-11）
+
+### App 相容性測試
+
+| App | 對方音訊 (ScreenCaptureKit) | 我方音訊 (Mic) | 備註 |
+|-----|:-------------------------:|:-------------:|------|
+| YouTube (Chrome) | ✅ 正常 | ✅ 正常 | 中文影片辨識成功 |
+| Zoom | 🔲 待測試 | 🔲 待測試 | 主要使用場景 |
+| Microsoft Teams | 🔲 待測試 | 🔲 待測試 | 主要使用場景 |
+| Google Meet (Chrome) | ✅ 偵測成功 | 🔲 待確認 | App 偵測 OK |
+| LINE Desktop | ❌ 不支援 | ❌ 受干擾 | HAL_ShellPlugIn 錯誤，LINE 音訊走虛擬裝置 |
+| WhatsApp Desktop | 🔲 待測試 | 🔲 待測試 | 可能與 LINE 相同限制 |
+| FaceTime | ✅ 偵測成功 | 🔲 待確認 | App 偵測 OK |
+| Telegram | 🔲 待測試 | 🔲 待測試 | |
+| Discord | 🔲 待測試 | 🔲 待測試 | |
+
+### LINE Desktop 已知問題
+
+```
+HALC_ShellPlugIn.cpp:915 — HAL_HardwarePlugIn_ObjectHasProperty: no object
+HALPlugIn.cpp:458 — DeviceCreateIOProcID: Error 560947818 (!obj)
+throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
+```
+
+**根因：** LINE 桌面版的通話音訊走 macOS 虛擬音訊裝置（HAL plug-in），不是標準的視窗音訊輸出。ScreenCaptureKit 無法擷取此類音訊。這是 macOS Core Audio HAL 層級限制，非程式碼問題。
+
+**可能解法（未來）：**
+- BlackHole 虛擬音訊裝置做 loopback 擷取
+- 系統層級音訊擷取（需更高權限）
+- 建議使用者改用 LINE 網頁版（Chrome）進行通話
+
+### 系統檢查結果（7/7 通過）
+
+| # | 檢查項目 | 結果 | 延遲 |
+|---|---------|------|------|
+| 1 | 麥克風權限 | ✅ 已授權 | 1,800ms |
+| 2 | 語音辨識權限 | ✅ 已授權 | 1,349ms |
+| 3 | 螢幕錄製權限 | ✅ 已授權 | 39ms |
+| 4 | 麥克風音訊擷取 | ✅ 48000Hz/1ch | 194ms |
+| 5 | 語音辨識引擎 (zh-TW) | ✅ 可用（支援離線）| 84ms |
+| 6 | 會議/通話 App 偵測 | ✅ FaceTime, LINE | 8ms |
+| 7 | ScreenCaptureKit 音訊 | ✅ 可擷取 | 8ms |
 
 ---
 
 ## 🔜 下一步
 
-### 即時 — TranscriptOnly 實測驗證
-- [ ] LINE 通話實測：雙串流辨識正常
-- [ ] WhatsApp 通話實測：雙串流辨識正常
-- [ ] Zoom 會議實測
-- [ ] Teams 會議實測
-- [ ] FaceTime 通話實測
+### 即時 — TranscriptOnly 驗證（優先）
+- [ ] **Zoom 會議實測**（最重要場景）
+- [ ] **Teams 會議實測**
+- [ ] FaceTime 通話實測（對方音訊確認）
 - [ ] 30 分鐘穩定性測試（不 crash）
 - [ ] 中英文混合辨識測試
 - [ ] 匯出 TXT 內容驗證
@@ -74,6 +125,11 @@
 - [ ] APIKeys.swift 已 push 到 GitHub → 需 `git rm --cached`
 - [ ] Claude/Notion Key 已曝光 → 需 rotate
 
+### 音訊相容性
+- [ ] LINE Desktop 音訊走 HAL 虛擬裝置 → ScreenCaptureKit 無法擷取
+- [ ] WhatsApp Desktop 可能有相同限制（待測試確認）
+- [ ] 建議使用者使用 Chrome 網頁版通話作為替代方案
+
 ### 工程
 - [ ] UsageExample.swift 過大（~950 行）
 - [ ] Tests 未加入 Xcode Test target
@@ -87,6 +143,7 @@
 - [ ] Speaker Diarization（面對面會議）
 - [ ] WhisperKit 離線語音辨識
 - [ ] Action Item 自動擷取 → Notion/Calendar
+- [ ] BlackHole loopback 擷取（支援 LINE/WhatsApp 桌面版）
 
 ### v5.x — Enterprise
 - [ ] 私有模型部署 / Azure OpenAI
@@ -103,4 +160,4 @@
 
 ---
 
-Updated: 2026-03-11 | MeetingCopilot v4.3.1 + TranscriptOnly v1.0 | Reality Matrix Inc.
+Updated: 2026-03-11 | MeetingCopilot v4.3.1 + TranscriptOnly v1.0 | 11 Supported Apps | Reality Matrix Inc.
