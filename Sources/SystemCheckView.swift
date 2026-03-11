@@ -158,10 +158,7 @@ class SystemCheckViewModel: ObservableObject {
     private func checkScreenRecording() async {
         updateStatus(2, .testing)
         
-        // ScreenCaptureKit availability check
         if #available(macOS 13.0, *) {
-            // We can't directly check screen recording permission without trying
-            // Best we can do is check if ScreenCaptureKit is available
             updateStatus(2, .passed, detail: "ScreenCaptureKit 可用。實際權限需開始會議時驗證")
         } else {
             updateStatus(2, .failed, detail: "需要 macOS 13.0+")
@@ -200,10 +197,7 @@ class SystemCheckViewModel: ObservableObject {
             }
             
             try engine.start()
-            
-            // Listen for 2 seconds
             try await Task.sleep(nanoseconds: 2_000_000_000)
-            
             inputNode.removeTap(onBus: 0)
             engine.stop()
             
@@ -259,7 +253,6 @@ class SystemCheckViewModel: ObservableObject {
                 }
             }
             
-            // Listen for 5 seconds
             try await Task.sleep(nanoseconds: 5_000_000_000)
             
             task.cancel()
@@ -282,14 +275,12 @@ class SystemCheckViewModel: ObservableObject {
         updateStatus(5, .testing)
         let start = Date()
         
-        // Read API key from Keychain
         guard let apiKey = KeychainManager.shared.retrieve(key: "claude_api_key"),
               !apiKey.isEmpty else {
             updateStatus(5, .failed, detail: "Claude API Key 未設定。請在 App 設定頁面填入")
             return
         }
         
-        // Test API with minimal request
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -336,7 +327,6 @@ class SystemCheckViewModel: ObservableObject {
             return
         }
         
-        // Test by reading the MeetingCopilot parent page
         var request = URLRequest(url: URL(string: "https://api.notion.com/v1/pages/320f154a-6472-804f-a226-c3694c1bb319")!)
         request.httpMethod = "GET"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -349,7 +339,6 @@ class SystemCheckViewModel: ObservableObject {
             
             if let httpResponse = response as? HTTPURLResponse {
                 if httpResponse.statusCode == 200 {
-                    // Parse page title
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let properties = json["properties"] as? [String: Any],
                        let title = properties["title"] as? [String: Any],
@@ -399,7 +388,8 @@ class SystemCheckViewModel: ObservableObject {
             }
         } catch {
             let latency = Int(Date().timeIntervalSince(start) * 1000)
-            updateStatus(7, .skipped, detail: "Bridge 未啟動（選填，\(bridgeURL)\uff09", latency: latency)
+            // FIX: replaced invalid \uff09 unicode escape with actual fullwidth parenthesis character
+            updateStatus(7, .skipped, detail: "Bridge 未啟動（選填，\(bridgeURL)）", latency: latency)
         }
     }
     
@@ -421,34 +411,23 @@ struct SystemCheckView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             headerView
-            
             Divider()
-            
-            // Check List
             ScrollView {
                 VStack(spacing: 12) {
                     ForEach(vm.checks) { check in
                         checkRow(check)
                     }
-                    
-                    // Mic Test Area
                     if vm.showMicTest {
                         micTestView
                     }
-                    
-                    // Result Summary
                     if !vm.isRunning && vm.checks.first?.status != .pending {
                         resultSummary
                     }
                 }
                 .padding(20)
             }
-            
             Divider()
-            
-            // Bottom Bar
             bottomBar
         }
         .frame(minWidth: 600, minHeight: 500)
@@ -505,7 +484,6 @@ struct SystemCheckView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
                 if !check.detail.isEmpty {
                     Text(check.detail)
                         .font(.caption)
@@ -542,8 +520,6 @@ struct SystemCheckView: View {
                 Text("🎤 請對麥克風說「測試一二三」")
                     .font(.headline)
             }
-            
-            // Audio level meter
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 4)
@@ -589,16 +565,13 @@ struct SystemCheckView: View {
         
         return VStack(spacing: 8) {
             Divider()
-            
             HStack(spacing: 20) {
                 Label("\(passed)/\(total) 通過", systemImage: "checkmark.circle.fill")
                     .foregroundColor(.green)
-                
                 if failed > 0 {
                     Label("\(failed) 失敗", systemImage: "xmark.circle.fill")
                         .foregroundColor(.red)
                 }
-                
                 if skipped > 0 {
                     Label("\(skipped) 跳過", systemImage: "minus.circle.fill")
                         .foregroundColor(.yellow)
