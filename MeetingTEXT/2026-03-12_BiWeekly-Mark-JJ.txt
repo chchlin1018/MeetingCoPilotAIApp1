@@ -1,0 +1,98 @@
+# MeetingCopilot 會前準備檔案
+# BiWeekly with Mark - John & Jill's Taiwan Strategy - 12 Mar 2026
+
+[MEETING]
+title=BiWeekly-Mark-12Mar26
+type=Review Meeting
+duration=60
+language=zh-TW
+
+[SOURCES]
+notion_page_id=
+notion_page_url=
+notebooklm_notebook_id=
+notebooklm_bridge_url=http://localhost:3210
+
+[GOALS]
+回顧 John & Jill's 台灣市場進入策略簡報（英文版+中文版）
+確認 Phase 1 執行計畫：媽媽 KOL 團購 + 群眾募資（嘖嘖/FlyingV）
+討論品牌在地化素材開發進度
+確認 Mark 對定價策略和通路佈局的意見
+釘清下一步 Action Items 和時程
+
+[ATTENDEES]
+Mark - Founder/Partner, John & Jill's (Australia)
+Michael Lin - Taiwan Market Advisor, Reality Matrix
+
+[QA_MY_QUESTIONS]
+# 我方主動提問
+
+Q: Mark 對簡報中「不競爭產地，競爭雙修配方」的定位策略有什麼想法？
+K: 定位, 策略, 雙修, dual-action, 產地, 澳洲
+A: 確認 Mark 是否同意不走「澳洲 Manuka」路線，改走「蜂蜜+蜂膠雙修」差異化
+
+Q: KOL 團購的預算和合作模式 Mark 那邊有什麼想法？
+K: KOL, 團購, 預算, 合作, 媽媽
+A: 確認澳洲方面可以投入的行銷預算和產品支援
+
+Q: 群眾募資平台（嘖嘖 vs FlyingV）Mark 有偏好嗎？
+K: 群眾募資, 嘖嘖, Zeczec, FlyingV, crowdfunding
+A: 確認募資目標金額和時程
+
+Q: Nature's Gold 外用護膚產品線是否同步引進台灣？
+K: Nature's Gold, 護膚, 濕疹, 外用, skincare
+A: 確認「內服+外用」完整方案是否第一階段就推
+
+Q: 台灣定價策略：對標 Comvita 還是走自己的價格帶？
+K: 定價, Comvita, 價格, premium
+A: 確認零售價、團購價、募資早鳥價的定價區間
+
+[QA_THEIR_QUESTIONS]
+# Mark 可能提問
+
+Q: 台灣消費者對澳洲 Manuka 蜂蜜的認知度如何？
+K: 澳洲, Manuka, 認知, 消費者, 紐西蘭
+A: 台灣消費者主要認知 Manuka=紐西蘭（Comvita 主導）。需要教育「Same Origin, Same Species」但不要正面競爭產地
+
+Q: KOL 團購在台灣的運作模式是什麼？
+K: KOL, 團購, 運作, 台灣, 媽媽社群
+A: 找有過敏兒的媽媽 KOL，用真實體驗帶團購。抽成通常 15-25%。先測試 3-5 位 KOL
+
+Q: 進入連鎖藥局和有機商店需要什麼條件？
+K: 藥局, 有機, 通路, 大樹, 聖德科斯, 棉花田
+A: Phase 2（7-12月）才進通路。需要：產品檢驗報告、中文標籤、進口許可、至少 3-6 個月庫存
+
+Q: 群眾募資在台灣的成功率和預期金額？
+K: 募資, 成功率, 金額, 嘖嘖
+A: 健康食品類募資目標 NT$500K-2M 合理。成功關鍵是前期社群經營和 KOL 導流
+
+Q: 台灣法規對蜂蜜/蜂膠進口有什麼限制？
+K: 法規, 進口, 蜂蜜, 蜂膠, FDA
+A: 需要台灣 FDA 食品進口查驗登記。蜂膠若宣稱功效需走保健食品認證（較複雜）。建議先以一般食品進口
+
+Q: Michael 的顧問角色和費用結構？
+K: 顧問, 費用, 合作, engagement
+A: 待討論：月費制 vs 佣金制 vs 混合制。範圍包含策略規劃、KOL 對接、通路開發
+
+[TP]
+MUST|台灣市場策略確認|「不競爭產地，競爭雙修配方+媽媽守護」定位 Mark 是否同意|策略, 定位, 雙修, dual-action
+MUST|Phase 1 執行計畫|KOL 團購 + 群眾募資 時程和預算確認|Phase 1, KOL, 團購, 募資, 預算
+MUST|定價策略|零售價/團購價/募資價 定價區間確認|定價, 價格, Comvita, premium
+SHOULD|品牌在地化素材|中文版簡報、產品文案、KOL briefing 素材開發進度|在地化, 中文, 素材, 文案
+SHOULD|法規和進口流程|台灣 FDA 食品進口查驗、中文標籤、檢驗報告|法規, FDA, 進口, 標籤
+SHOULD|Nature's Gold 外用線|是否 Phase 1 同步引進「內服+外用」完整方案|Nature's Gold, 外用, 護膚, 濕疹
+NICE|通路佈局規劃|Phase 2 聖德科斯/棉花田/大樹藥局 進入策略|通路, 藥局, 有機商店
+NICE|競品分析更新|Comvita/大醫生技/其他蜂膠品牌 最新動態|競品, Comvita, 蜂膠
+
+[PREANALYSIS]
+已完成的準備工作：
+1. 英文版台灣市場策略簡報（14頁）- 涵蓋品牌介紹、市場機會、差異化策略、進入策略、KPI
+2. 中文版簡報 - 給 Mark 參考台灣在地表達方式
+3. Mark 會談簡報 - 針對 Mark 的簡化版本
+核心策略：
+- 定位：「來自澳洲的天然家庭小藥箱」
+- 差異化：Manuka蜂蜜+蜂膠雙修配方，不跟紐西蘭拼產地
+- Entry Point A：雙修配方（一匙抵兩瓶）
+- Entry Point B：敏感肌護理（創辦人濕疹故事）
+- Phase 1（1-6月）：媽媽KOL團購 + 嘖嘖/FlyingV群眾募資
+- Phase 2（7-12月）：聖德科斯/棉花田有機商店 + 大樹藥局
