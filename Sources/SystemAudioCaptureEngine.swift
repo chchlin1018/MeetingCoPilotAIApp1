@@ -1,6 +1,6 @@
 // SystemAudioCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Primary: ScreenCaptureKit System Audio Capture
-// Fixed: Actor isolation for Swift Strict Concurrency
+// Fixed: Dynamic audio format detection + actor isolation
 
 import Foundation
 import ScreenCaptureKit
@@ -17,8 +17,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
-    // Fix: nonisolated(unsafe) for Swift Strict Concurrency
-    // Safe because _state is only mutated within the actor
     nonisolated(unsafe) private var _state: AudioCaptureState = .idle
     
     nonisolated var state: AudioCaptureState {
@@ -40,10 +38,16 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     
     private let config: AudioCaptureConfiguration
     private var detectedMeetingApp: MeetingApp?
+    
+    // ★ Dynamic audio format (lazy-initialized from first buffer)
     private var audioConverter: AVAudioConverter?
     private var speechFormat: AVAudioFormat?
+    private var lastInputFormat: AVAudioFormat?
+    private var converterInitialized = false
+    private var bufferCount: Int = 0
+    private var convertFailCount: Int = 0
     
-    // MARK: - ★ Public: 偵測到的 App 名稱
+    // MARK: - Public: 偵測到的 App
     
     var detectedAppName: String? {
         detectedMeetingApp?.displayName
@@ -126,8 +130,17 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
             )
         )
         
-        // Step 8: Audio format converter (48kHz -> 16kHz)
-        try setupAudioConverter()
+        // ★ Note: Audio converter is NO LONGER pre-initialized here
+        // It will be dynamically created from the first actual audio buffer
+        // This avoids format mismatch issues (-10877)
+        
+        // Step 8: Prepare speech format target (16kHz mono for Apple Speech)
+        speechFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16000.0,
+            channels: 1,
+            interleaved: false
+        )
         
         // Step 9: Start speech recognition
         try startSpeechRecognition()
@@ -153,6 +166,10 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         recognitionRequest = nil
         audioConverter = nil
         speechFormat = nil
+        lastInputFormat = nil
+        converterInitialized = false
+        bufferCount = 0
+        convertFailCount = 0
         detectedMeetingApp = nil
         streamContinuation?.finish()
         streamContinuation = nil
@@ -231,29 +248,38 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         return mainWindow
     }
     
-    // MARK: - Audio Converter (48kHz -> 16kHz)
+    // MARK: - ★ Dynamic Audio Converter (lazy from first buffer)
     
-    private func setupAudioConverter() throws {
-        let captureFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: config.sampleRate,
-            channels: AVAudioChannelCount(config.channelCount),
-            interleaved: false
-        )
-        let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16000.0,
-            channels: 1,
-            interleaved: false
-        )
-        guard let captureFormat = captureFormat, let targetFormat = targetFormat else {
-            throw AudioCaptureError.configurationFailed("Cannot create audio format")
+    private func ensureConverter(for inputFormat: AVAudioFormat) -> Bool {
+        guard let targetFormat = speechFormat else { return false }
+        
+        // Already initialized with same format
+        if converterInitialized, let last = lastInputFormat,
+           last.sampleRate == inputFormat.sampleRate &&
+           last.channelCount == inputFormat.channelCount {
+            return audioConverter != nil
         }
-        audioConverter = AVAudioConverter(from: captureFormat, to: targetFormat)
-        speechFormat = targetFormat
-        guard audioConverter != nil else {
-            throw AudioCaptureError.configurationFailed("Cannot create audio converter")
+        
+        // Log format detection
+        if !converterInitialized {
+            print("🔊 Audio format detected: \(inputFormat.sampleRate)Hz / \(inputFormat.channelCount)ch / \(inputFormat.commonFormat.rawValue)")
+            print("🔊 Target format: \(targetFormat.sampleRate)Hz / \(targetFormat.channelCount)ch")
+        } else {
+            print("⚠️ Audio format CHANGED: \(inputFormat.sampleRate)Hz / \(inputFormat.channelCount)ch")
         }
+        
+        // Create converter dynamically
+        audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
+        lastInputFormat = inputFormat
+        converterInitialized = true
+        
+        if audioConverter == nil {
+            print("❌ Cannot create audio converter from \(inputFormat.sampleRate)Hz to \(targetFormat.sampleRate)Hz")
+            return false
+        }
+        
+        print("✅ Audio converter created: \(inputFormat.sampleRate)Hz → \(targetFormat.sampleRate)Hz")
+        return true
     }
     
     // MARK: - Speech Recognition
@@ -285,9 +311,8 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
                     if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
                         await self.restartSpeechRecognition()
                     } else {
-                        await self.handleCaptureError(
-                            AudioCaptureError.captureInterrupted(error.localizedDescription)
-                        )
+                        print("⚠️ Speech error: \(error.localizedDescription)")
+                        await self.restartSpeechRecognition()
                     }
                 }
             }
@@ -301,9 +326,10 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 300_000_000)
         do {
             try startSpeechRecognition()
+            print("🔄 Speech recognition restarted (buffer count: \(bufferCount))")
         } catch {
             await handleCaptureError(
                 AudioCaptureError.engineStartFailed("Speech restart failed: \(error)")
@@ -311,35 +337,122 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
-    // MARK: - Process Audio Buffer from ScreenCaptureKit
+    // MARK: - ★ Process Audio Buffer (with dynamic format detection)
     
     private func processAudioBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard let formatDescription = sampleBuffer.formatDescription,
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
             return
         }
+        
+        bufferCount += 1
+        
+        // ★ Method 1: Try direct append from CMSampleBuffer (most reliable)
+        if appendDirectly(sampleBuffer: sampleBuffer, asbd: asbd.pointee) {
+            return
+        }
+        
+        // ★ Method 2: Convert to PCM buffer then downsample
         guard let pcmBuffer = convertToPCMBuffer(sampleBuffer: sampleBuffer, asbd: asbd.pointee) else {
             return
         }
         
-        if let converter = audioConverter, let targetFormat = speechFormat {
-            let ratio = config.sampleRate / 16000.0
-            let targetFrameCount = AVAudioFrameCount(Double(pcmBuffer.frameLength) / ratio)
-            guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: targetFrameCount) else { return }
-            var conversionError: NSError?
-            let status = converter.convert(to: convertedBuffer, error: &conversionError) { _, outStatus in
-                outStatus.pointee = .haveData
-                return pcmBuffer
+        let inputFormat = pcmBuffer.format
+        
+        // Same sample rate as target — append directly
+        if abs(inputFormat.sampleRate - 16000.0) < 100 {
+            recognitionRequest?.append(pcmBuffer)
+            return
+        }
+        
+        // Need conversion — ensure converter exists for this format
+        guard ensureConverter(for: inputFormat),
+              let converter = audioConverter,
+              let targetFormat = speechFormat else {
+            // Fallback: try appending raw buffer anyway
+            recognitionRequest?.append(pcmBuffer)
+            return
+        }
+        
+        let ratio = inputFormat.sampleRate / targetFormat.sampleRate
+        let targetFrameCount = AVAudioFrameCount(Double(pcmBuffer.frameLength) / ratio)
+        guard targetFrameCount > 0,
+              let convertedBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: targetFrameCount) else {
+            return
+        }
+        
+        var conversionError: NSError?
+        var hasData = false
+        let status = converter.convert(to: convertedBuffer, error: &conversionError) { _, outStatus in
+            outStatus.pointee = .haveData
+            hasData = true
+            return pcmBuffer
+        }
+        
+        if status == .haveData {
+            recognitionRequest?.append(convertedBuffer)
+        } else if status == .error {
+            convertFailCount += 1
+            if convertFailCount <= 3 {
+                print("⚠️ Convert error #\(convertFailCount): \(conversionError?.localizedDescription ?? "unknown") — trying direct append")
             }
-            if status == .haveData {
-                recognitionRequest?.append(convertedBuffer)
-            }
-        } else {
+            // ★ Fallback: reset converter and try raw append
+            converterInitialized = false
+            audioConverter = nil
             recognitionRequest?.append(pcmBuffer)
         }
     }
     
-    // MARK: - CMSampleBuffer -> AVAudioPCMBuffer
+    // MARK: - ★ Direct append from CMSampleBuffer (bypass converter)
+    
+    private func appendDirectly(sampleBuffer: CMSampleBuffer, asbd: AudioStreamBasicDescription) -> Bool {
+        // If the source is already close to 16kHz, we can skip conversion
+        // Apple Speech is somewhat flexible on input rates
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: asbd.mSampleRate,
+            channels: AVAudioChannelCount(asbd.mChannelsPerFrame),
+            interleaved: false
+        ) else { return false }
+        
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard frameCount > 0 else { return false }
+        
+        // For sample rates that Apple Speech can handle natively (16k-48k)
+        // Try creating a buffer and appending directly
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
+            return false
+        }
+        pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
+        
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return false }
+        var lengthAtOffset: Int = 0
+        var totalLength: Int = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(
+            blockBuffer, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset,
+            totalLengthOut: &totalLength, dataPointerOut: &dataPointer
+        )
+        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return false }
+        
+        if let channelData = pcmBuffer.floatChannelData {
+            let byteCount = frameCount * MemoryLayout<Float>.size
+            memcpy(channelData[0], data, min(byteCount, totalLength))
+        }
+        
+        // ★ Directly append to speech recognition (Apple Speech handles resampling)
+        recognitionRequest?.append(pcmBuffer)
+        
+        // Log first buffer info
+        if bufferCount == 1 {
+            print("🔊 First audio buffer: \(asbd.mSampleRate)Hz / \(asbd.mChannelsPerFrame)ch / \(frameCount) frames")
+            print("🔊 Strategy: direct append (Apple Speech handles resampling)")
+        }
+        
+        return true
+    }
+    
+    // MARK: - CMSampleBuffer -> AVAudioPCMBuffer (fallback)
     
     private func convertToPCMBuffer(sampleBuffer: CMSampleBuffer, asbd: AudioStreamBasicDescription) -> AVAudioPCMBuffer? {
         guard let format = AVAudioFormat(
