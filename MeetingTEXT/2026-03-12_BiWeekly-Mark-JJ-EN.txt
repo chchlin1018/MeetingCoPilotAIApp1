@@ -1,0 +1,122 @@
+# MeetingCopilot Meeting Prep File
+# BiWeekly with Mark - John & Jill's Taiwan Go-to-Market Strategy - 12 Mar 2026
+# FULL ENGLISH MEETING (Zoom)
+
+[MEETING]
+title=BiWeekly-Mark-JJ-12Mar26-EN
+type=Review Meeting
+duration=60
+language=en-US
+
+[SOURCES]
+notion_page_id=320f154a-6472-813f-bc2c-d98e570ab696
+notion_page_url=https://www.notion.so/PreMeeting-BiWeekly-Mark-J-J-12-Mar-2026-320f154a6472813fbc2cd98e570ab696
+notebooklm_notebook_id=51364658-5c30-4b55-8118-5103095ae8d0
+notebooklm_bridge_url=http://localhost:3210
+
+[GOALS]
+Review Taiwan go-to-market strategy presentation (English version)
+Confirm Phase 1 execution plan: Mom KOL group buys + crowdfunding (Zeczec/FlyingV)
+Discuss brand localization asset development progress
+Get Mark's feedback on pricing strategy and channel layout
+Lock down next Action Items and timeline
+
+[ATTENDEES]
+Mark - Founder/Partner, John & Jill's (Australia)
+Michael Lin - Taiwan Market Advisor, Reality Matrix
+
+[QA_MY_QUESTIONS]
+# Questions I want to ask Mark
+
+Q: What are your thoughts on the positioning strategy - competing on dual-action formula rather than origin?
+K: positioning, strategy, dual-action, origin, Australia, differentiation
+A: Confirm Mark agrees with not competing head-on with NZ Manuka on origin, instead using honey+propolis dual-action as differentiator
+
+Q: What budget and partnership model does the Australian side have in mind for KOL group buys?
+K: KOL, group buy, budget, partnership, mother, influencer
+A: Confirm marketing budget and product support available from Australia
+
+Q: Do you have a preference between crowdfunding platforms - Zeczec vs FlyingV?
+K: crowdfunding, Zeczec, FlyingV, platform, launch
+A: Confirm fundraising target amount and timeline
+
+Q: Should we bring Nature's Gold skincare line into Taiwan simultaneously in Phase 1?
+K: Nature's Gold, skincare, eczema, topical, inside-out
+A: Confirm whether the complete internal+external solution launches from day one
+
+Q: For Taiwan pricing - should we benchmark against Comvita or carve our own price tier?
+K: pricing, Comvita, premium, price point, retail
+A: Confirm retail price, group buy price, and early bird crowdfunding price ranges
+
+Q: What's the timeline for getting product efficacy data and case studies ready for pharmacy negotiations?
+K: efficacy, data, case studies, pharmacy, clinical
+A: Need these assets ready before Phase 2 physical channel expansion
+
+[QA_THEIR_QUESTIONS]
+# Questions Mark may ask
+
+Q: How aware are Taiwan consumers of Australian Manuka honey?
+K: Australian, Manuka, awareness, consumer, New Zealand
+A: Taiwan consumers equate Manuka with NZ (Comvita dominates). Need to educate on Same Origin Same Species but avoid head-on origin competition
+
+Q: How do KOL group buys work in Taiwan?
+K: KOL, group buy, mechanism, Taiwan, mother community
+A: Find mom KOLs with allergic children, authentic experience drives group buys. Commission typically 15-25%. Start with 3-5 KOLs
+
+Q: What are the requirements to enter pharmacy chains and organic stores?
+K: pharmacy, organic, channel, requirements, regulations
+A: Phase 2 (months 7-12). Need: product testing reports, Chinese labeling, import permit, 3-6 months inventory
+
+Q: What's the typical crowdfunding success rate and expected amount in Taiwan?
+K: crowdfunding, success rate, amount, Zeczec, target
+A: Health supplement crowdfunding target NT$500K-2M is reasonable. Success depends on pre-launch community building and KOL traffic
+
+Q: What are Taiwan's regulatory requirements for honey/propolis imports?
+K: regulations, import, honey, propolis, FDA, Taiwan
+A: Need Taiwan FDA food import inspection registration. If making health claims for propolis, need health food certification (more complex). Recommend starting as general food import
+
+Q: What's Michael's advisory role and fee structure?
+K: advisory, consulting, fee, engagement, role
+A: To discuss: monthly retainer vs commission vs hybrid. Scope includes strategy planning, KOL connections, channel development
+
+[TP]
+MUST|Market Opportunity: Taiwan has AUD 4.8B health supplement market, post-pandemic health awareness, 4.5M diabetic/pre-diabetic population seeking natural solutions|market, opportunity, 4.8 billion, health, diabetes|
+MUST|The Red Ocean Trap: Pure Manuka market dominated by NZ brands. Competing on origin and UMF/MGO traps us in a price war|red ocean, NZ, Comvita, price war, UMF, MGO|
+MUST|Our Scientific Moat: Gibberagee Australian Native Propolis with globally exclusive A-Ring methylated compounds that NZ cannot replicate|scientific, moat, A-Ring, propolis, Gibberagee, methylated|
+MUST|Category Creation: Not just selling honey - creating the Australian Natural Family Medicine Cabinet as a new category|category, medicine cabinet, positioning, brand|
+MUST|Solving the Taste Pain Point: Dual-action formula eliminates bitter propolis taste - one spoonful replaces two bottles, kid-friendly daily defense|taste, dual-action, kids, formula, bitter|
+MUST|Dual-Track Strategy: Track 1 targets mothers for allergy/immunity, Track 2 targets older adults for blood sugar management|dual-track, mothers, allergy, blood sugar, diabetes|
+SHOULD|Stable Sugar Frontline: Propolis binding affinity -9.58 kcal/mol rivaling Acarbose, zero GI side effects|blood sugar, binding, Acarbose, clinical, propolis|
+SHOULD|Three-Pronged Channel Entry: Year 1 focuses on mid-tier e-commerce, corporate gifting, and functional peripherals to avoid Comvita clash|channels, e-commerce, gifting, lozenges, sprays|
+SHOULD|Founder-Led Crowdfunding: Phase 1 launches on Zeczec with Jill's authentic eczema story for mother-to-mother trust|crowdfunding, Zeczec, Jill, founder, story, trust|
+NICE|Financial Trajectory: Projecting AUD 697K Year 1 to AUD 5.58M Year 3, CAC under AUD 23, retention rate 40%+|revenue, projection, CAC, retention, Year 1, Year 3|
+
+[PREANALYSIS]
+Completed preparation:
+1. English Taiwan Go-to-Market Strategy deck (10 pages) - covers brand intro, market opportunity, differentiation, entry strategy, KPIs
+2. Chinese version deck - for Mark to reference Taiwan local expressions
+3. Mark meeting simplified deck
+
+Core Strategy:
+- Positioning: Australian Natural Family Medicine Cabinet
+- Differentiation: Manuka honey + propolis dual-action formula, not competing on NZ origin
+- Entry Point A: Dual-action formula (one spoonful replaces two bottles)
+- Entry Point B: Sensitive skin care (founder Jill's eczema story)
+- Scientific Moat: 6 exclusive A-Ring methylated compounds, 5.4x antioxidant power vs Vitamin C
+- Phase 1 (months 1-6): Mom KOL group buys + Zeczec/FlyingV crowdfunding
+- Phase 2 (months 7-12): Premium organic stores + pharmacy chains
+- Year 1 Revenue Target: AUD 697K
+- Year 3 Revenue Target: AUD 5.58M
+
+Key Data Points:
+- Taiwan health supplement market: AUD 4.8B (2024)
+- Pure Manuka honey market: AUD 22M
+- Diabetic + pre-diabetic population: 4.5M
+- Gallic acid antioxidant: 5.4x Vitamin C
+- Total Phenolic Content: 100x+ vs standard propolis
+- Total Flavonoid Content: 180x vs other propolis
+- Blood sugar binding affinity: -9.58 kcal/mol (near Acarbose at -10.05)
+- CAC target: < AUD 23
+- LTV target: > AUD 163
+- Retention target: 40%+
+- ROAS target: 3.5x+
