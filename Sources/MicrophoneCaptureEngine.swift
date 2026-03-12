@@ -129,7 +129,8 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
                     let isFinal = result.isFinal
                     let confidence = result.bestTranscription.segments.last?.confidence ?? 0
                     
-                    if !await self.hasEverReceivedSpeech || isFinal {
+                    let gotSpeechBefore = await self.hasEverReceivedSpeech
+                    if !gotSpeechBefore || isFinal {
                         print("🎙️ [MIC-DEBUG] 🗣️ Speech result: isFinal=\(isFinal), confidence=\(String(format: "%.2f", confidence)), text=\"\(text.suffix(60))\"")
                     }
                     
