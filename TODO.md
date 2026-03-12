@@ -1,6 +1,6 @@
 # MeetingCopilot 開發待辦與演進路線圖
 
-> 最後更新: 2026-03-12 | v4.3.1 (build 8)
+> 最後更新: 2026-03-12 | v4.3.1 (build 8) | 19 Swift files
 
 ---
 
@@ -15,19 +15,40 @@
 - [x] AirPods Pro 衝突確認 + 自動切換內建麥克風
 
 ### ★ Zoom 會議實測結果（2026-03-12 ✅ 驗證通過）
-- [x] Zoom App 偵測：Tier 0 最高優先級，App Picker 正確顯示
+- [x] Zoom App 偵測：Tier 0 最高優先級
 - [x] 對方英文語音辨識（en-US）✅ 正常辨識
 - [x] 我方麥克風 On-Device 英文辨識 ✅ yellow 顯示
 - [x] MacBook 內建麥克風自動偵測 OK
 - [x] 10 Talking Points + 12 Q&A 載入成功
-- [x] Notion RAG 可用
-- [x] ❗ 需要授權螢幕錄製權限給 MeetingCopilot（否則 ScreenCaptureKit 無法擷取對方音訊）
+- [x] ❗ 需要授權螢幕錄製權限給 MeetingCopilot
+
+### ★ Post-Meeting Diagnostic Logger（新功能）
+- [x] PostMeetingLogger.swift 新增（第 19 個 Swift 檔案）
+- [x] 已加入 Xcode project.pbxproj Build Target
+- [x] UsageExample.swift 加入 coordinator.setMeetingInfo()
+- [x] 會議結束時自動產生 _LOG.txt 到 MeetingTEXT 資料夾
+- [x] 完整記錄：系統狀態、音源 App、連接狀態、發言時間、AI 使用量
+
+### Log 內容區段
+| 區段 | 記錄內容 |
+|------|----------|
+| [STATUS] | ✅ ALL OK / ⚠️ WARNINGS / ❌ ISSUES |
+| [MEETING] | 標題、時間、語言、音源 App、雙串流、轉錄條數 |
+| [SYSTEM] | 螢幕錄製 TCC、麥克風裝置、藍牙偵測 |
+| [CONNECTIONS] | Claude API / Notion / NotebookLM 連接狀態 |
+| [REMOTE_ENGINE] | 對方：segments、buffers、restarts、errors |
+| [LOCAL_ENGINE] | 我方：segments、RMS、靜音%、On-Device 模式 |
+| [SPEAKING_TIME] | 對方/我方發言分鐘、比例、靜音時間 |
+| [AI_USAGE] | API 次數、cards、延遲、tokens、成本 USD |
+| [TALKING_POINTS] | 完成率、MUST 完成率 |
+| [ERROR_LOG] | 錯誤記錄 |
+| [SUMMARY] | 人類可讀摘要 |
 
 ### App 相容性
 
 | App | 對方音訊 | 我方麥克風 | 狀態 |
 |-----|:---:|:---:|------|
-| **Zoom** | ✅ | ✅ On-Device | **已驗證** — 需授權螢幕錄製 |
+| **Zoom** | ✅ | ✅ On-Device | **已驗證**（英文會議） |
 | YouTube (Chrome) | ✅ | ✅ On-Device | 已驗證 |
 | Google Meet (Chrome) | ✅ | ✅ On-Device | 已驗證 |
 | Microsoft Teams | 🔲 | 🔲 | 待測試 |
@@ -45,15 +66,7 @@
 ## ❗ 重要前置設定
 
 ### 螢幕錄製權限（必要）
-ScreenCaptureKit 需要螢幕錄製權限才能擷取 Zoom/Teams/Meet 等會議 App 的對方音訊。
-
-**設定方式：**
-系統設定 → 隱私與安全性 → 螢幕與系統錄音 → 打開 **MeetingCopilot**
-
-如果未授權，Console 會顯示：
-```
-⚠️ DualStream: SystemAudio failed — 使用者拒絕應用程式、視窗、顯示器擷取的TCC
-```
+系統設定 → 隱私與安全性 → 螢幕與系統錄音 → 打開 MeetingCopilot
 
 ---
 

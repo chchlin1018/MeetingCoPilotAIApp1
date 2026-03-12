@@ -5,9 +5,7 @@ macOS 原生 AI 會議助手：ScreenCaptureKit 擷取會議音訊 + Apple Speec
 ## ❗ 首次使用前必讀
 
 ### 螢幕錄製權限（必要）
-MeetingCopilot 需要螢幕錄製權限才能擷取 Zoom/Teams/Meet 等會議 App 的對方音訊。
-
-**設定方式：系統設定 → 隱私與安全性 → 螢幕與系統錄音 → 打開 MeetingCopilot**
+系統設定 → 隱私與安全性 → 螢幕與系統錄音 → 打開 MeetingCopilot
 
 未授權時僅我方麥克風可用，對方音訊無法擷取。
 
@@ -34,13 +32,27 @@ MeetingCopilot 需要螢幕錄製權限才能擷取 Zoom/Teams/Meet 等會議 Ap
 | AirPods Pro 藍牙 | ❌ | 程式自動切換到內建麥克風，AirPods 耳機不受影響 |
 | 外接 USB 麥克風 | ✅ | 應該正常 |
 
+## Post-Meeting Diagnostic Log（新功能）
+
+每次會議結束時自動產生診斷 Log 到 MeetingTEXT/ 資料夾：
+
+- 系統狀態（OK/ISSUES/WARNINGS）
+- 會議音源 App、語言、時長
+- Claude API / Notion / NotebookLM 連接狀態
+- 對方/我方語音辨識 segments、restarts、errors
+- 發言時間比例（對方 vs 我方 vs 靜音）
+- AI 使用量（API 次數、cards、token 估算、成本 USD）
+- Talking Points 完成率
+
+檔案格式：`MeetingTEXT/2026-03-12_1730_BiWeekly-Mark_LOG.txt`
+
 ## 快速開始
 
 1. git clone + open MeetingCopilot.xcodeproj
 2. 填入 Sources/APIKeys.swift 的 Claude API Key
 3. **系統設定 → 隱私與安全性 → 螢幕與系統錄音 → 打開 MeetingCopilot**
 4. 系統設定 → 聲音 → 輸入 → 確認是 MacBook 內建麥克風
-5. Cmd+R Build & Run
+5. Cmd+R Build & Run（19 Swift files 自動編譯）
 6. 按「準備會議」→ 填寫資訊 → 按「開始會議」
 
 ## 已知限制

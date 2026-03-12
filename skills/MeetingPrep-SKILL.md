@@ -1,66 +1,69 @@
 # MeetingPrep-SKILL.md
 
-> Version: 2026-03-12 | v4.3.1 | Zoom ✅ Verified
+> Version: 2026-03-12 | v4.3.1 | 19 Swift files | Zoom ✅ Verified
 
 ## ❗ Required: Screen Recording Permission (TCC)
 
-ScreenCaptureKit needs screen recording permission to capture meeting audio from Zoom/Teams/Meet.
+System Settings > Privacy & Security > Screen & System Audio Recording > Enable MeetingCopilot
 
-**Setup: System Settings > Privacy & Security > Screen & System Audio Recording > Enable MeetingCopilot**
+Without this: `DualStream: SystemAudio failed — 使用者拒絕應用程式、視窗、顯示器擷取的TCC`
 
-Without this permission:
-- Console shows: `DualStream: SystemAudio failed — 使用者拒絕應用程式、視窗、顯示器擷取的TCC`
-- Only mic (local) works, remote audio capture fails
-- The app may need to be restarted after granting permission
+Reset if needed: `tccutil reset ScreenCapture com.RealityMatrix.MeetingCopilot`
 
-To reset if needed:
-```bash
-tccutil reset ScreenCapture com.RealityMatrix.MeetingCopilot
-```
+## Pre-Meeting Checklist
 
-## Zoom Meeting Verified (2026-03-12)
+1. System Settings > Screen & System Audio Recording > MeetingCopilot ✅
+2. System Settings > Sound > Input > MacBook built-in mic (auto-handled)
+3. Sources/APIKeys.swift has valid Claude API Key
+4. Run System Check (🩺) > all items pass
+5. Open Zoom/Teams/Meet and join meeting
+6. Click "開始會議" > select app > start
+7. Meeting ends > Log auto-saved to MeetingTEXT/
 
-Zoom full English meeting tested successfully:
-- Remote English speech recognition (en-US): ✅
-- Local mic On-Device English recognition: ✅
-- MacBook built-in mic auto-detection: ✅
-- 10 Talking Points + 12 Q&A loaded: ✅
-- Notion RAG available: ✅
-- Screen recording TCC required for dual-stream
+## ★ Post-Meeting Diagnostic Logger
+
+New PostMeetingLogger.swift (19th Swift file) auto-saves diagnostic log on meeting end.
+
+File: `MeetingTEXT/YYYY-MM-DD_HHMM_title_LOG.txt`
+
+Integration:
+- UsageExample.swift: `coordinator.setMeetingInfo(title:language:)` in loadPrepAndStart()
+- MeetingAICoordinator.stopMeeting(): collects diagnostics before stopping engines
+- PostMeetingLogger.saveLog(): writes TXT to MeetingTEXT folder
+
+Log sections:
+
+| Section | Content |
+|---------|----------|
+| [STATUS] | ✅ ALL OK / ⚠️ WARNINGS / ❌ ISSUES |
+| [MEETING] | title, duration, language, audio_source_app, dual_stream |
+| [SYSTEM] | screen_recording TCC, mic_device, bluetooth_detected |
+| [CONNECTIONS] | Claude API, Notion API, NotebookLM (connected/failed/not configured) |
+| [REMOTE_ENGINE] | segments, buffers, restarts, errors, detected app |
+| [LOCAL_ENGINE] | segments, buffers, restarts, RMS, silent%, on-device mode |
+| [SPEAKING_TIME] | remote/local minutes, speaking ratio %, silence minutes |
+| [AI_USAGE] | api calls, cards, latency, tokens, cost USD |
+| [TALKING_POINTS] | total/completed, must completion rate |
+| [ERROR_LOG] | collected errors |
+| [SUMMARY] | human-readable one-liner |
+
+Overall status logic:
+- ✅ ALL OK: no issues
+- ⚠️ WARNINGS: bluetooth detected, high restart count
+- ❌ ISSUES: TCC denied, no speech received, Claude API failed
+
+Speaking time estimation: zh ~3 chars/sec, en ~2.5 chars/sec
 
 ## Microphone Compatibility
 
-AirPods Pro bluetooth mic is NOT compatible when ScreenCaptureKit is running.
-Program auto-detects bluetooth and switches to built-in mic. AirPods earphone output not affected.
+AirPods Pro bluetooth mic NOT compatible with ScreenCaptureKit.
+Program auto-detects bluetooth and switches to built-in mic.
 
 | Device | Voice Capture | Compatible |
 |--------|:---:|:---:|
 | MacBook Built-in Mic | ✅ | ✅ Recommended |
 | AirPods Pro | ❌ | Auto-switched to built-in |
 | External USB Mic | ✅ | ✅ Should work |
-
-## Pre-Meeting Checklist
-
-1. System Settings > Privacy & Security > Screen & System Audio Recording > MeetingCopilot ✅
-2. System Settings > Sound > Input > MacBook built-in mic (auto-handled)
-3. Sources/APIKeys.swift has valid Claude API Key
-4. Run System Check (🩺) > all items pass
-5. Open Zoom/Teams/Meet and join meeting
-6. Click "開始會議" > select app > start
-
-## App Selection (v4.3.1)
-
-MeetingPrepView: scanAndStart() > AppScanner.scanActiveApps()
-- 0 apps: auto-detect
-- 1 app: auto-start
-- 2+ apps: App Picker Sheet
-
-## Dual-Pipeline Recognition
-
-Remote: ScreenCaptureKit > Apple Speech [SERVER]
-Local: AVAudioEngine > Apple Speech [ON-DEVICE]
-
-On-Device languages: zh-TW, en-US, en-GB, zh-CN, ja-JP
 
 ## Verified Apps
 
@@ -71,6 +74,20 @@ On-Device languages: zh-TW, en-US, en-GB, zh-CN, ja-JP
 | Google Meet (Chrome) | ✅ | ✅ | Verified |
 | Teams | 🔲 | 🔲 | Pending |
 | LINE Desktop | ❌ | ❌ | HAL limitation |
+
+## Dual-Pipeline Recognition
+
+Remote: ScreenCaptureKit > Apple Speech [SERVER]
+Local: AVAudioEngine > Apple Speech [ON-DEVICE]
+
+On-Device languages: zh-TW, en-US, en-GB, zh-CN, ja-JP
+
+## App Selection (v4.3.1)
+
+MeetingPrepView: scanAndStart() > AppScanner.scanActiveApps()
+- 0 apps: auto-detect
+- 1 app: auto-start
+- 2+ apps: App Picker Sheet
 
 ## Speech Error Handling
 
@@ -86,7 +103,6 @@ Filter Xcode Console: MIC-DEBUG
 - Start: permission, format, on-device, bluetooth detection
 - RMS: first 10 buffers with dB + silent/quiet/audio
 - Bluetooth auto-switch log
-- Errors: domain + code + description + RMS
 
 ## Established Meetings
 
