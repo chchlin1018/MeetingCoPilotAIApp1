@@ -50,52 +50,59 @@
 - [x] 全掃描所有支援 App（不再第一個匹配就返回）
 - [x] 活躍視窗檢查（>200x200 且 on screen）
 - [x] 優先級排序：Tier 0 (Zoom/Teams) → Tier 1 (Meet) → Tier 2 (Slack) → Tier 3 (LINE/FaceTime)
-- [x] MeetingApp.detectionPriority 屬性
 - [x] 多 App 時彈出選擇面板（App Picker Sheet）
 - [x] 單 App 自動啟動 / 0 App 顯示錯誤
 - [x] AppScanner 靜態工具 + DetectedAppInfo 結構
-- [x] AudioCaptureConfiguration.withTarget() 指定 App 啟動
 
 ### 麥克風引擎修復
-- [x] 修復 MicrophoneCaptureEngine restartRecognition() 致命 bug
-  - 舊 bug：restart 呼叫 start()，但 start() 有 guard !isActive → 直接 return → 語音辨識死亡
-  - 修復：新增 restartSpeechOnly()，僅重啟 Speech Recognition，不動 audioEngine
-- [x] Smart speech error handling（三種錯誤不同延遲）
-  - "No speech detected"：等 5 秒再重啟（舊行為 0.3 秒造成快速循環）
-  - 60 秒 timeout (code 216)：0.3 秒後快速重啟
-  - 其他錯誤：1 秒後重啟 + 記錄錯誤碼
-- [x] 同步修復 SystemAudioCaptureEngine 的 speech error handling
+- [x] 修復 restartRecognition() 致命 bug（restart 呼叫 start() → guard !isActive → return → 死亡）
+- [x] 新增 restartSpeechOnly()，僅重啟 Speech Recognition，不動 audioEngine
+- [x] Smart speech error handling（"No speech detected" 等 5 秒 / 60s timeout 0.3 秒 / 其他 1 秒）
+- [x] 解決 0.3 秒快速重啟循環問題
+
+### ★ On-Device 雙管道辨識（解決對方/我方互相取消）
+- [x] **根因：** macOS Apple Speech 同時只允許一個 Server-based SFSpeechRecognitionTask
+- [x] **現象：** 說話時對方辨識中斷（error [301]: Recognition request was canceled）
+- [x] **修復：** 麥克風用 On-Device 離線辨識，遠端用 Server 線上辨識
+- [x] 兩個不同的辨識管道（on-device vs server）可以共存
+- [x] zh-TW / en-US / ja-JP 等 5 種語言皆支援 On-Device
+- [x] restartSpeechOnly() 保持 on-device 模式
 - [x] hasEverReceivedSpeech 標記 + 🎉 first speech log
-- [x] 減少 log 噪音（前 5 次重啟記錄，之後每 10 次）
+- [x] 停止摘要含 onDevice flag（`Mic: stopped (buffers: 501, gotSpeech: true, onDevice: true)`）
 
 ---
 
-## 🔬 TranscriptOnly 實測結果（2026-03-11/12）
+## 🔬 TranscriptOnly 實測結果（2026-03-12）
 
 ### App 相容性測試
 
 | App | 對方音訊 (ScreenCaptureKit) | 我方音訊 (Mic) | 備註 |
 |-----|:-------------------------:|:-------------:|------|
-| YouTube (Chrome) | ✅ 正常辨識 | ✅ 引擎正常 | 中文新聞辨識成功，對方 105+ segments |
+| YouTube (Chrome) | ✅ 正常辨識 | ✅ On-Device 辨識 | 雙串流同時運作，不互相干擾 |
 | Zoom | 🔲 待測試 | 🔲 待測試 | 主要使用場景 |
 | Microsoft Teams | 🔲 待測試 | 🔲 待測試 | 主要使用場景 |
-| Google Meet (Chrome) | ✅ 偵測+擷取成功 | ✅ 引擎正常 | Smart Detection 正確選擇 priority=1 |
+| Google Meet (Chrome) | ✅ 偵測+擷取成功 | ✅ On-Device 辨識 | Smart Detection 正確選擇 priority=1 |
 | LINE Desktop | ❌ 不支援 | ❌ 受干擾 | HAL_ShellPlugIn 錯誤，音訊走虛擬裝置 |
 | WhatsApp Desktop | 🔲 待測試 | 🔲 待測試 | 可能與 LINE 相同限制 |
-| FaceTime | ✅ 偵測成功 | 🔲 待確認 | App 偵測 OK，priority=3 正確排序 |
+| FaceTime | ✅ 偵測成功 | 🔲 待確認 | priority=3 正確排序 |
 | Telegram | 🔲 待測試 | 🔲 待測試 | |
 | Discord | 🔲 待測試 | 🔲 待測試 | |
 
+### 雙管道辨識驗證結果
+
+```
+🎙️ Mic: on-device recognition = ✅ YES
+🎙️ Mic: using ON-DEVICE recognition (避免與遠端 server 辨識衝突)
+✅ Mic: audioEngine started, listening... (mode: on-device)
+🎉 Remote: first speech recognized!
+🎉 Mic: first speech recognized! (mode: on-device)
+⏹️ Mic: stopped (buffers: 501, restarts: 5, gotSpeech: true, onDevice: true)
+⏹️ Remote: stopped (buffers: 0, restarts: 5, gotSpeech: true)
+```
+
 ### LINE Desktop 已知問題
 
-```
-HALC_ShellPlugIn.cpp:915 — HAL_HardwarePlugIn_ObjectHasProperty: no object
-HALPlugIn.cpp:458 — DeviceCreateIOProcID: Error 560947818 (!obj)
-throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
-```
-
-**根因：** LINE 桌面版的通話音訊走 macOS 虛擬音訊裝置（HAL plug-in），不是標準的視窗音訊輸出。ScreenCaptureKit 無法擷取此類音訊。這是 macOS Core Audio HAL 層級限制，非程式碼問題。
-
+**根因：** LINE 桌面版通話音訊走 macOS 虛擬音訊裝置（HAL plug-in），ScreenCaptureKit 無法擷取。
 **解法：** 見下方 v4.5 BlackHole 整合方案。
 
 ### 系統檢查結果（7/7 通過）
@@ -132,30 +139,9 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 - [ ] Evidence-based Card Model（evidences + inferenceType）
 - [ ] Structured Logging / Telemetry
 
-#### P2
-- [ ] UsageExample.swift 拆分（~950 行）
-- [ ] Tests 整合到 Xcode Test Target
-
 ### v4.5 — BlackHole 虛擬音訊整合（支援 LINE/WhatsApp 桌面版）
 
-> **目的：** 解決 ScreenCaptureKit 無法擷取 LINE/WhatsApp 等走 HAL 虛擬音訊裝置的 App 問題
 > **複雜度：低（~2 小時）** | **優先級：可選進階功能**
-
-#### 使用者端一次性設定
-1. 安裝 BlackHole：`brew install blackhole-2ch`
-2. 開啟 macOS Audio MIDI Setup
-3. 建立「Multi-Output Device」— 綁定 BlackHole + 喇叭/耳機
-4. 系統音訊輸出設為 Multi-Output Device
-
-#### 程式端改動
-
-| 任務 | 檔案 | 難度 | 時間 |
-|------|------|------|------|
-| BlackHole 裝置偵測 | Sources/BlackHoleAudioEngine.swift（新增） | 低 | 30 min |
-| AVAudioEngine 從 BlackHole 讀取音訊 | Sources/BlackHoleAudioEngine.swift | 低 | 30 min |
-| Pipeline fallback 邏輯 | Sources/TranscriptPipeline.swift | 低 | 30 min |
-| UI 音訊來源選項 | TranscriptOnly/TranscriptOnlyView.swift | 低 | 30 min |
-| 使用者引導 + SystemCheck 偵測 | docs + SystemCheckSheet.swift | 低 | 30 min |
 
 #### Fallback 策略
 ```
@@ -182,7 +168,6 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 ### 工程
 - [ ] UsageExample.swift 過大（~950 行）
 - [ ] Tests 未加入 Xcode Test target
-- [ ] Notion 關鍵字需改 Claude 動態展開
 
 ---
 

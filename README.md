@@ -34,7 +34,37 @@
 | 通訊 | Telegram | ru.keepcoder.Telegram | 待測試 | Tier 3 |
 | 通訊 | FaceTime | com.apple.FaceTime | ✅ 偵測成功 | Tier 3 |
 
-> **Smart Detection**：偵測到多個 App 時，依優先級排序，使用者手動選擇音訊來源。單一 App 則自動啟動。
+> **Smart Detection**：偵測到多個 App 時，使用者手動選擇音訊來源。單一 App 則自動啟動。
+
+---
+
+## 技術架構
+
+### 雙管道辨識（On-Device + Server）
+
+```
+對方 (Remote):
+  ScreenCaptureKit → Direct Append → Apple Speech [SERVER] → cyan 文字
+
+我方 (Local):
+  AVAudioEngine → installTap → Apple Speech [ON-DEVICE] → yellow 文字
+```
+
+> **為何分離？** macOS Apple Speech 同時只允許一個 Server-based SFSpeechRecognitionTask。
+> 麥克風用 On-Device 離線辨識，遠端用 Server 線上辨識，兩者可以共存不衝突。
+
+### 音訊策略（三層容錯）
+1. **Direct Append**：直接送 PCM buffer 給 Apple Speech（讓 Speech 處理 resampling）
+2. **Dynamic Converter**：首個 buffer 動態偵測格式，建立 AVAudioConverter
+3. **Raw Append Fallback**：converter 失敗時直接送原始 buffer
+
+### Speech Error Handling
+| 錯誤 | 延遲 | 說明 |
+|------|------|------|
+| No speech detected | 5 秒 | 正常等待，不是錯誤 |
+| 60s timeout (216) | 0.3 秒 | Apple Speech 正常超時 |
+| Canceled (301) | 1 秒 | 被其他 task 取消 |
+| 其他錯誤 | 1 秒 | 記錄錯誤碼後重啟 |
 
 ---
 
@@ -50,12 +80,11 @@ open TranscriptOnly.xcodeproj
 
 ### 使用流程
 1. 選擇語言（繁體中文/English/日本語等 5 種）
-2. 按 🩺 按鈕執行系統檢查（7 項自動診斷）
+2. 按 🩺 執行系統檢查（7 項自動診斷）
 3. 開啟 Zoom/Teams/Chrome 等會議
-4. 按「開始會議」→ 偵測到多個 App 會彈出選擇面板
-5. 對方語音 = cyan 文字，我方語音 = yellow 文字
-6. 紫色斜體 = Live Partial Results（即時辨識中）
-7. 按「停止」→ 匯出 TXT
+4. 按「開始會議」→ 多 App 時彈出選擇面板
+5. 對方語音 = cyan，我方語音 = yellow，紫色斜體 = Partial
+6. 按「停止」→ 匯出 TXT
 
 ### 檔案結構（7 個 Swift 檔案）
 
@@ -65,50 +94,11 @@ TranscriptOnly/
 ├── TranscriptOnlyView.swift     # UI + ViewModel + App Picker
 ├── SystemCheckSheet.swift       # 7 項系統檢查
 Sources/
-├── AudioCaptureEngine.swift     # Protocol + MeetingApp enum + AppScanner
-├── SystemAudioCaptureEngine.swift  # ScreenCaptureKit 擷取（對方）
-├── MicrophoneCaptureEngine.swift   # AVAudioEngine 擷取（我方）
+├── AudioCaptureEngine.swift     # Protocol + MeetingApp + AppScanner
+├── SystemAudioCaptureEngine.swift  # ScreenCaptureKit [SERVER]
+├── MicrophoneCaptureEngine.swift   # AVAudioEngine [ON-DEVICE]
 ├── TranscriptPipeline.swift     # 雙串流合併 + Audio Health
 ```
-
-### 系統檢查項目
-
-| # | 檢查 | 說明 |
-|---|------|------|
-| 1 | 麥克風權限 | AVCaptureDevice |
-| 2 | 語音辨識權限 | SFSpeechRecognizer |
-| 3 | 螢幕錄製權限 | SCShareableContent |
-| 4 | 麥克風音訊擷取 | AVAudioEngine 格式 |
-| 5 | 語音辨識引擎 | 語言可用性 + 離線支援 |
-| 6 | App 偵測 | 掃描 11 個支援 App |
-| 7 | ScreenCaptureKit | SCStream 建立測試 |
-
----
-
-## 技術架構
-
-### 音訊管線
-```
-ScreenCaptureKit (48kHz) → Direct Append → Apple Speech → TranscriptSegment
-                                                              ↓
-AVAudioEngine (48kHz)   → installTap    → Apple Speech → TranscriptSegment
-                                                              ↓
-                                              TranscriptPipeline (合併)
-                                                              ↓
-                                              TranscriptUpdate → UI
-```
-
-### 音訊策略（三層容錯）
-1. **Direct Append**：直接送 PCM buffer 給 Apple Speech（讓 Speech 處理 resampling）
-2. **Dynamic Converter**：首個 buffer 動態偵測格式，建立對應的 AVAudioConverter
-3. **Raw Append Fallback**：converter 失敗時直接送原始 buffer
-
-### Speech Error Handling
-| 錯誤 | 延遲 | 說明 |
-|------|------|------|
-| No speech detected | 5 秒 | 正常等待，不是錯誤 |
-| 60s timeout (216) | 0.3 秒 | Apple Speech 正常超時 |
-| 其他錯誤 | 1 秒 | 記錄錯誤碼後重啟 |
 
 ---
 
@@ -123,20 +113,11 @@ AVAudioEngine (48kHz)   → installTap    → Apple Speech → TranscriptSegment
 ## 版本路線圖
 
 ```
-v4.3.1 (current) → TranscriptOnly 驗證
+v4.3.1 (current) → TranscriptOnly 驗證 (Zoom/Teams)
     → v4.4: AI 功能增強 (Claude 動態關鍵字 + Notion 同步)
     → v4.5: BlackHole 整合 (LINE/WhatsApp 支援)
     → v5.0: 產品化 (WhisperKit + Speaker Diarization)
 ```
-
----
-
-## 開發環境
-
-- macOS 14.0+ (Sonoma)
-- Xcode 15.4+
-- Swift 5.9 / Swift Strict Concurrency
-- ScreenCaptureKit / AVFoundation / Speech
 
 ---
 
