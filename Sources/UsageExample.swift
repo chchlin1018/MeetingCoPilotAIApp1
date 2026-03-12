@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.3.1 — SwiftUI Main View
-// Updated: Larger fonts + First TP in teleprompter + App Selection
+// Updated: PostMeetingLogger integration + setMeetingInfo
 
 import SwiftUI
 import AppKit
@@ -114,10 +114,14 @@ struct MeetingTeleprompterView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    // ★ 修復：使用 result.selectedApp 建立 config
+    // ★ 修復：使用 result.selectedApp 建立 config + setMeetingInfo
     private func loadPrepAndStart(_ result: MeetingPrepResult) async {
         meetingTitle = result.context.goals.first ?? "Meeting"
         activeSpeechLanguage = result.speechLocale.identifier
+
+        // ★ 傳遞會議標題和語言給 PostMeetingLogger
+        coordinator.setMeetingInfo(title: meetingTitle, language: activeSpeechLanguage)
+
         await coordinator.updateContext(result.context)
         await coordinator.loadKnowledgeBase(result.qaItems)
         await coordinator.loadTalkingPoints(result.talkingPoints, meetingDurationMinutes: result.durationMinutes)
