@@ -1,6 +1,6 @@
 # MeetingCopilot 開發待辦與演進路線圖
 
-> 最後更新: 2026-03-11 | 版本: v4.3.1 (build 8) | Bundle: com.RealityMatrix.MeetingCopilot
+> 最後更新: 2026-03-12 | 版本: v4.3.1 (build 8) | Bundle: com.RealityMatrix.MeetingCopilot
 
 ---
 
@@ -46,21 +46,43 @@
 - [x] 動態格式偵測 + 三層容錯（direct → dynamic converter → raw append）
 - [x] Debug logging（🔊 格式資訊 / ⚠️ 轉換錯誤 / 🔄 重啟）
 
+### Smart App 偵測 + 手動選擇
+- [x] 全掃描所有支援 App（不再第一個匹配就返回）
+- [x] 活躍視窗檢查（>200x200 且 on screen）
+- [x] 優先級排序：Tier 0 (Zoom/Teams) → Tier 1 (Meet) → Tier 2 (Slack) → Tier 3 (LINE/FaceTime)
+- [x] MeetingApp.detectionPriority 屬性
+- [x] 多 App 時彈出選擇面板（App Picker Sheet）
+- [x] 單 App 自動啟動 / 0 App 顯示錯誤
+- [x] AppScanner 靜態工具 + DetectedAppInfo 結構
+- [x] AudioCaptureConfiguration.withTarget() 指定 App 啟動
+
+### 麥克風引擎修復
+- [x] 修復 MicrophoneCaptureEngine restartRecognition() 致命 bug
+  - 舊 bug：restart 呼叫 start()，但 start() 有 guard !isActive → 直接 return → 語音辨識死亡
+  - 修復：新增 restartSpeechOnly()，僅重啟 Speech Recognition，不動 audioEngine
+- [x] Smart speech error handling（三種錯誤不同延遲）
+  - "No speech detected"：等 5 秒再重啟（舊行為 0.3 秒造成快速循環）
+  - 60 秒 timeout (code 216)：0.3 秒後快速重啟
+  - 其他錯誤：1 秒後重啟 + 記錄錯誤碼
+- [x] 同步修復 SystemAudioCaptureEngine 的 speech error handling
+- [x] hasEverReceivedSpeech 標記 + 🎉 first speech log
+- [x] 減少 log 噪音（前 5 次重啟記錄，之後每 10 次）
+
 ---
 
-## 🔬 TranscriptOnly 實測結果（2026-03-11）
+## 🔬 TranscriptOnly 實測結果（2026-03-11/12）
 
 ### App 相容性測試
 
 | App | 對方音訊 (ScreenCaptureKit) | 我方音訊 (Mic) | 備註 |
 |-----|:-------------------------:|:-------------:|------|
-| YouTube (Chrome) | ✅ 正常 | ✅ 正常 | 中文影片辨識成功 |
+| YouTube (Chrome) | ✅ 正常辨識 | ✅ 引擎正常 | 中文新聞辨識成功，對方 105+ segments |
 | Zoom | 🔲 待測試 | 🔲 待測試 | 主要使用場景 |
 | Microsoft Teams | 🔲 待測試 | 🔲 待測試 | 主要使用場景 |
-| Google Meet (Chrome) | ✅ 偵測成功 | 🔲 待確認 | App 偵測 OK |
-| LINE Desktop | ❌ 不支援 | ❌ 受干擾 | HAL_ShellPlugIn 錯誤，LINE 音訊走虛擬裝置 |
+| Google Meet (Chrome) | ✅ 偵測+擷取成功 | ✅ 引擎正常 | Smart Detection 正確選擇 priority=1 |
+| LINE Desktop | ❌ 不支援 | ❌ 受干擾 | HAL_ShellPlugIn 錯誤，音訊走虛擬裝置 |
 | WhatsApp Desktop | 🔲 待測試 | 🔲 待測試 | 可能與 LINE 相同限制 |
-| FaceTime | ✅ 偵測成功 | 🔲 待確認 | App 偵測 OK |
+| FaceTime | ✅ 偵測成功 | 🔲 待確認 | App 偵測 OK，priority=3 正確排序 |
 | Telegram | 🔲 待測試 | 🔲 待測試 | |
 | Discord | 🔲 待測試 | 🔲 待測試 | |
 
@@ -121,10 +143,9 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 
 #### 使用者端一次性設定
 1. 安裝 BlackHole：`brew install blackhole-2ch`
-2. 開啟 macOS Audio MIDI Setup（音訊 MIDI 設定）
+2. 開啟 macOS Audio MIDI Setup
 3. 建立「Multi-Output Device」— 綁定 BlackHole + 喇叭/耳機
 4. 系統音訊輸出設為 Multi-Output Device
-5. （之後所有系統音訊同時送到喇叭 + BlackHole）
 
 #### 程式端改動
 
@@ -132,35 +153,17 @@ throwing -10877 (kAudioConverterErr_RequiresPacketDescriptionsError)
 |------|------|------|------|
 | BlackHole 裝置偵測 | Sources/BlackHoleAudioEngine.swift（新增） | 低 | 30 min |
 | AVAudioEngine 從 BlackHole 讀取音訊 | Sources/BlackHoleAudioEngine.swift | 低 | 30 min |
-| Pipeline fallback 邏輯（ScreenCaptureKit 失敗 → BlackHole） | Sources/TranscriptPipeline.swift | 低 | 30 min |
-| UI 加入音訊來源選項（自動 / ScreenCaptureKit / BlackHole） | TranscriptOnly/TranscriptOnlyView.swift | 低 | 30 min |
-| 使用者引導設定文件 + SystemCheck 加入 BlackHole 偵測 | docs + SystemCheckSheet.swift | 低 | 30 min |
-
-#### 核心程式碼概念
-```swift
-// BlackHoleAudioEngine.swift — 偵測 + 讀取 BlackHole 裝置
-let devices = AVAudioEngine().inputNode
-// 1. 列舉所有音訊輸入裝置
-// 2. 找到名稱含 "BlackHole" 的裝置
-// 3. 設為 AVAudioEngine inputNode 的音訊來源
-// 4. 輸出 PCM buffer → Apple Speech recognitionRequest.append()
-```
-
-#### 音訊擷取方式比較
-
-| 方式 | 優點 | 缺點 |
-|------|------|------|
-| ScreenCaptureKit（現有） | 精準擷取單一 App 音訊，零設定 | LINE/WhatsApp 等 HAL 裝置不支援 |
-| BlackHole Loopback（新增） | 能擷取所有系統音訊，包含 LINE/WhatsApp | 需使用者安裝設定，會混入通知聲/音樂等雜訊 |
+| Pipeline fallback 邏輯 | Sources/TranscriptPipeline.swift | 低 | 30 min |
+| UI 音訊來源選項 | TranscriptOnly/TranscriptOnlyView.swift | 低 | 30 min |
+| 使用者引導 + SystemCheck 偵測 | docs + SystemCheckSheet.swift | 低 | 30 min |
 
 #### Fallback 策略
 ```
-啟動流程：
-1. 嘗試 ScreenCaptureKit 擷取目標 App 音訊
-2. 如果成功 → 使用 ScreenCaptureKit（最佳品質）
-3. 如果失敗（如 LINE HAL 錯誤）→ 偵測 BlackHole 裝置
-4. 如果 BlackHole 存在 → 自動切換到 BlackHole 擷取
-5. 如果 BlackHole 不存在 → 提示使用者安裝 BlackHole 或改用 Chrome 版
+1. 嘗試 ScreenCaptureKit 擷取目標 App
+2. 成功 → 使用 ScreenCaptureKit（最佳品質）
+3. 失敗 → 偵測 BlackHole 裝置
+4. BlackHole 存在 → 自動切換 loopback 擷取
+5. 不存在 → 提示使用者安裝或改用 Chrome 版
 ```
 
 ---
@@ -174,8 +177,7 @@ let devices = AVAudioEngine().inputNode
 ### 音訊相容性
 - [ ] LINE Desktop 音訊走 HAL 虛擬裝置 → ScreenCaptureKit 無法擷取
 - [ ] WhatsApp Desktop 可能有相同限制（待測試確認）
-- [ ] 建議使用者使用 Chrome 網頁版通話作為替代方案
-- [ ] v4.5 BlackHole 整合可解決此問題（可選進階功能）
+- [ ] v4.5 BlackHole 整合可解決此問題
 
 ### 工程
 - [ ] UsageExample.swift 過大（~950 行）
@@ -207,4 +209,4 @@ let devices = AVAudioEngine().inputNode
 
 ---
 
-Updated: 2026-03-11 | MeetingCopilot v4.3.1 + TranscriptOnly v1.0 | 11 Supported Apps | Reality Matrix Inc.
+Updated: 2026-03-12 | MeetingCopilot v4.3.1 + TranscriptOnly v1.0 | 11 Supported Apps | Reality Matrix Inc.
