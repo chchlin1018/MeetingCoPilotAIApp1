@@ -1,10 +1,11 @@
 // MicrophoneCaptureEngine.swift
-// MeetingCopilot v4.3.1 — Fallback: Microphone Capture Engine
-// Fixed: Use ON-DEVICE recognition + Debug logging for mic issues
+// MeetingCopilot v4.3.1 — Microphone Capture Engine
+// Fixed: On-Device recognition + AirPods auto-switch + Debug logging
 
 import Foundation
 import AVFoundation
 import Speech
+import CoreAudio
 
 actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     
@@ -31,6 +32,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private var useOnDevice: Bool = false
     private var lastRMS: Float = 0
     private var silentBufferCount: Int = 0
+    private var didSwitchFromBluetooth: Bool = false
     
     init(configuration: AudioCaptureConfiguration = .default) {
         self.config = configuration
@@ -39,6 +41,165 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     
     private func setStreamContinuation(_ continuation: AsyncStream<TranscriptSegment>.Continuation) {
         self.streamContinuation = continuation
+    }
+    
+    // MARK: - ★ AirPods / Bluetooth 麥克風偵測與自動切換
+    
+    /// 檢查當前麥克風是否是藍牙裝置（AirPods / Beats / 其他 BT）
+    /// 如果是，強制切換到 MacBook 內建麥克風
+    nonisolated private func ensureBuiltInMicrophone() {
+        // 取得當前預設輸入裝置
+        var defaultInputID = AudioDeviceID(0)
+        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address, 0, nil, &propertySize, &defaultInputID
+        )
+        guard status == noErr else {
+            print("🎙️ [MIC-DEBUG] Cannot get default input device")
+            return
+        }
+        
+        // 取得裝置名稱
+        let currentName = getDeviceName(deviceID: defaultInputID)
+        let transportType = getTransportType(deviceID: defaultInputID)
+        
+        print("🎙️ [MIC-DEBUG] Current input device: \"\(currentName)\" (transport: \(transportTypeString(transportType)))")
+        
+        // 檢查是否是藍牙裝置
+        let isBluetooth = (transportType == kAudioDeviceTransportTypeBluetooth ||
+                          transportType == kAudioDeviceTransportTypeBluetoothLE ||
+                          currentName.lowercased().contains("airpods") ||
+                          currentName.lowercased().contains("beats") ||
+                          currentName.lowercased().contains("bluetooth"))
+        
+        if isBluetooth {
+            print("⚠️ [MIC-DEBUG] 偵測到藍牙麥克風: \"\(currentName)\"")
+            print("⚠️ [MIC-DEBUG] 藍牙麥克風與 ScreenCaptureKit 衝突，將自動切換到內建麥克風")
+            
+            // 尋找內建麥克風
+            if let builtInID = findBuiltInMicrophone() {
+                let builtInName = getDeviceName(deviceID: builtInID)
+                
+                // 設定 AVAudioSession 使用內建麥克風
+                // 在 macOS 上透過 CoreAudio 設定預設輸入裝置
+                var newDeviceID = builtInID
+                var setAddress = AudioObjectPropertyAddress(
+                    mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                let setStatus = AudioObjectSetPropertyData(
+                    AudioObjectID(kAudioObjectSystemObject),
+                    &setAddress, 0, nil,
+                    UInt32(MemoryLayout<AudioDeviceID>.size),
+                    &newDeviceID
+                )
+                
+                if setStatus == noErr {
+                    print("✅ [MIC-DEBUG] 已切換麥克風: \"\(currentName)\" → \"\(builtInName)\"")
+                    print("✅ [MIC-DEBUG] AirPods 仍可作為耳機使用（輸出不受影響）")
+                    // 註意：會議結束後可以手動切回
+                } else {
+                    print("❌ [MIC-DEBUG] 無法切換到內建麥克風 (error: \(setStatus))")
+                    print("❌ [MIC-DEBUG] 請手動在系統設定 → 聲音 → 輸入中選擇 MacBook 麥克風")
+                }
+            } else {
+                print("❌ [MIC-DEBUG] 找不到內建麥克風！請手動切換")
+            }
+        } else {
+            print("✅ [MIC-DEBUG] 麥克風裝置 OK: \"\(currentName)\" (非藍牙)")
+        }
+    }
+    
+    /// 尋找內建麥克風裝置 ID
+    nonisolated private func findBuiltInMicrophone() -> AudioDeviceID? {
+        var propertySize: UInt32 = 0
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &propertySize)
+        let deviceCount = Int(propertySize) / MemoryLayout<AudioDeviceID>.size
+        var devices = [AudioDeviceID](repeating: 0, count: deviceCount)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &propertySize, &devices)
+        
+        for deviceID in devices {
+            let transport = getTransportType(deviceID: deviceID)
+            let name = getDeviceName(deviceID: deviceID)
+            let hasInput = deviceHasInput(deviceID: deviceID)
+            
+            // 內建麥克風: transport = BuiltIn 且有輸入通道
+            if transport == kAudioDeviceTransportTypeBuiltIn && hasInput {
+                print("🎙️ [MIC-DEBUG] 找到內建麥克風: \"\(name)\" (ID: \(deviceID))")
+                return deviceID
+            }
+        }
+        return nil
+    }
+    
+    /// 取得裝置名稱
+    nonisolated private func getDeviceName(deviceID: AudioDeviceID) -> String {
+        var name: CFString = "" as CFString
+        var propertySize = UInt32(MemoryLayout<CFString>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectGetPropertyData(deviceID, &address, 0, nil, &propertySize, &name)
+        return name as String
+    }
+    
+    /// 取得傳輸類型（BuiltIn / Bluetooth / USB 等）
+    nonisolated private func getTransportType(deviceID: AudioDeviceID) -> UInt32 {
+        var transportType: UInt32 = 0
+        var propertySize = UInt32(MemoryLayout<UInt32>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectGetPropertyData(deviceID, &address, 0, nil, &propertySize, &transportType)
+        return transportType
+    }
+    
+    /// 檢查裝置是否有輸入通道
+    nonisolated private func deviceHasInput(deviceID: AudioDeviceID) -> Bool {
+        var propertySize: UInt32 = 0
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &propertySize)
+        let bufferListSize = Int(propertySize)
+        guard bufferListSize > 0 else { return false }
+        let bufferList = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
+        defer { bufferList.deallocate() }
+        AudioObjectGetPropertyData(deviceID, &address, 0, nil, &propertySize, bufferList)
+        let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
+        return buffers.reduce(0) { $0 + Int($1.mNumberChannels) } > 0
+    }
+    
+    nonisolated private func transportTypeString(_ type: UInt32) -> String {
+        switch type {
+        case kAudioDeviceTransportTypeBuiltIn: return "BuiltIn"
+        case kAudioDeviceTransportTypeBluetooth: return "Bluetooth"
+        case kAudioDeviceTransportTypeBluetoothLE: return "BluetoothLE"
+        case kAudioDeviceTransportTypeUSB: return "USB"
+        case kAudioDeviceTransportTypeAggregate: return "Aggregate"
+        case kAudioDeviceTransportTypeVirtual: return "Virtual"
+        default: return "Unknown(\(type))"
+        }
     }
     
     // MARK: - Start
@@ -50,8 +211,11 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         print("🎙️ [MIC-DEBUG] ====== MicrophoneCaptureEngine Starting ======")
         print("🎙️ [MIC-DEBUG] Locale: \(config.speechLocale.identifier)")
         
+        // ★ 自動偵測並切換藍牙麥克風
+        ensureBuiltInMicrophone()
+        
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        print("🎙️ [MIC-DEBUG] Mic permission: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
+        print("🎙️ [MIC-DEBUG] Mic permission: \(micStatus.rawValue) (3=authorized)")
         
         speechRecognizer = SFSpeechRecognizer(locale: config.speechLocale)
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
@@ -60,9 +224,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
         
         useOnDevice = recognizer.supportsOnDeviceRecognition
-        print("🎙️ [MIC-DEBUG] recognizer.isAvailable = \(recognizer.isAvailable)")
-        print("🎙️ [MIC-DEBUG] recognizer.supportsOnDeviceRecognition = \(useOnDevice)")
-        print("🎙️ [MIC-DEBUG] on-device recognition = \(useOnDevice ? "✅ YES" : "❌ NO (will use server)")")
+        print("🎙️ [MIC-DEBUG] on-device recognition = \(useOnDevice ? "✅ YES" : "❌ NO")")
         
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let request = recognitionRequest else {
@@ -73,15 +235,12 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         if useOnDevice {
             request.requiresOnDeviceRecognition = true
             print("🎙️ [MIC-DEBUG] request.requiresOnDeviceRecognition = TRUE")
-        } else {
-            print("⚠️ [MIC-DEBUG] on-device not available, using server (may conflict with remote)")
         }
         
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         
-        print("🎙️ [MIC-DEBUG] inputNode format: \(recordingFormat.sampleRate)Hz / \(recordingFormat.channelCount)ch / \(recordingFormat.commonFormat.rawValue)")
-        print("🎙️ [MIC-DEBUG] inputNode isVoiceProcessingEnabled: \(inputNode.isVoiceProcessingEnabled)")
+        print("🎙️ [MIC-DEBUG] inputNode format: \(recordingFormat.sampleRate)Hz / \(recordingFormat.channelCount)ch")
         
         inputNode.installTap(onBus: 0, bufferSize: config.bufferSize, format: recordingFormat) { [weak self] buffer, time in
             guard let self = self else { return }
@@ -98,7 +257,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         startSpeechRecognition(recognizer: recognizer, request: request)
         
         _state = .capturing
-        print("✅ [MIC-DEBUG] Mic: audioEngine started, listening... (mode: \(useOnDevice ? "on-device" : "server"))")
+        print("✅ [MIC-DEBUG] Mic started (mode: \(useOnDevice ? "on-device" : "server"))")
         print("🎙️ [MIC-DEBUG] ====== MicrophoneCaptureEngine Ready ======")
     }
     
@@ -131,7 +290,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
                     
                     let gotSpeechBefore = await self.hasEverReceivedSpeech
                     if !gotSpeechBefore || isFinal {
-                        print("🎙️ [MIC-DEBUG] 🗣️ Speech result: isFinal=\(isFinal), confidence=\(String(format: "%.2f", confidence)), text=\"\(text.suffix(60))\"")
+                        print("🎙️ [MIC-DEBUG] 🗣️ Speech: isFinal=\(isFinal), conf=\(String(format: "%.2f", confidence)), text=\"\(text.suffix(60))\"")
                     }
                     
                     await self.markSpeechReceived()
@@ -148,9 +307,9 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
         
         if let task = recognitionTask {
-            print("🎙️ [MIC-DEBUG] recognitionTask created, state=\(task.state.rawValue) (0=starting, 1=running, 2=finishing, 3=canceling, 4=completed)")
+            print("🎙️ [MIC-DEBUG] recognitionTask state=\(task.state.rawValue)")
         } else {
-            print("❌ [MIC-DEBUG] recognitionTask is NIL! recognizer may have rejected the request")
+            print("❌ [MIC-DEBUG] recognitionTask is NIL!")
         }
     }
     
@@ -163,11 +322,11 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         let description = error.localizedDescription
         
         print("⚠️ [MIC-DEBUG] Speech error: domain=\(domain), code=\(code), desc=\"\(description)\"")
-        print("⚠️ [MIC-DEBUG]   buffers=\(bufferCount), restarts=\(restartCount), gotSpeech=\(hasEverReceivedSpeech), lastRMS=\(String(format: "%.6f", lastRMS))")
+        print("⚠️ [MIC-DEBUG]   buffers=\(bufferCount), restarts=\(restartCount), lastRMS=\(String(format: "%.6f", lastRMS))")
         
         if description.contains("No speech detected") || code == 1110 {
             if restartCount < 5 {
-                print("💤 [MIC-DEBUG] No speech yet (RMS=\(String(format: "%.6f", lastRMS)), silent=\(silentBufferCount)/\(bufferCount)) — waiting 5s before restart #\(restartCount + 1)")
+                print("💤 [MIC-DEBUG] No speech (RMS=\(String(format: "%.6f", lastRMS)), silent=\(silentBufferCount)/\(bufferCount)) — 5s wait")
             }
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await restartSpeechOnly()
@@ -175,20 +334,20 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
         
         if domain == "kAFAssistantErrorDomain" && code == 216 {
-            print("⏰ [MIC-DEBUG] 60s timeout, restarting... (buffers=\(bufferCount))")
+            print("⏰ [MIC-DEBUG] 60s timeout, restarting...")
             try? await Task.sleep(nanoseconds: 300_000_000)
             await restartSpeechOnly()
             return
         }
         
         if code == 301 {
-            print("⚠️ [MIC-DEBUG] recognition CANCELED (code 301) — server conflict? restarting in 1s...")
+            print("⚠️ [MIC-DEBUG] recognition CANCELED (301) — restarting in 1s")
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             await restartSpeechOnly()
             return
         }
         
-        print("⚠️ [MIC-DEBUG] Unknown speech error [\(code)]: \(description)")
+        print("⚠️ [MIC-DEBUG] Unknown error [\(code)]: \(description)")
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         await restartSpeechOnly()
     }
@@ -205,7 +364,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         streamContinuation?.finish()
         streamContinuation = nil
         _state = .idle
-        print("⏹️ [MIC-DEBUG] Mic: stopped (buffers: \(bufferCount), restarts: \(restartCount), gotSpeech: \(hasEverReceivedSpeech), onDevice: \(useOnDevice), lastRMS: \(String(format: "%.6f", lastRMS)), silentBuffers: \(silentBufferCount))")
+        print("⏹️ [MIC-DEBUG] Mic stopped (buffers: \(bufferCount), restarts: \(restartCount), gotSpeech: \(hasEverReceivedSpeech), onDevice: \(useOnDevice), lastRMS: \(String(format: "%.6f", lastRMS)))")
     }
     
     // MARK: - Restart Speech Only
@@ -216,10 +375,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         recognitionTask = nil
         recognitionRequest = nil
         
-        guard _state.isActive else {
-            print("🎙️ [MIC-DEBUG] restartSpeechOnly: state not active, skipping")
-            return
-        }
+        guard _state.isActive else { return }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             print("❌ [MIC-DEBUG] restartSpeechOnly: recognizer unavailable!")
             return
@@ -244,7 +400,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         
         restartCount += 1
         if restartCount <= 5 || restartCount % 10 == 0 {
-            print("🔄 [MIC-DEBUG] speech restarted (#\(restartCount), mode: \(useOnDevice ? "on-device" : "server"), audioRunning: \(audioEngine.isRunning))")
+            print("🔄 [MIC-DEBUG] speech restarted (#\(restartCount), mode: \(useOnDevice ? "on-device" : "server"))")
         }
     }
     
@@ -253,7 +409,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private func markSpeechReceived() {
         if !hasEverReceivedSpeech {
             hasEverReceivedSpeech = true
-            print("🎉 [MIC-DEBUG] FIRST SPEECH RECOGNIZED! (mode: \(useOnDevice ? "on-device" : "server"), buffers: \(bufferCount), restarts: \(restartCount))")
+            print("🎉 [MIC-DEBUG] FIRST SPEECH! (mode: \(useOnDevice ? "on-device" : "server"), buffers: \(bufferCount))")
         }
     }
     
@@ -269,7 +425,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         
         if bufferCount % 500 == 0 {
             let silentPct = bufferCount > 0 ? (Float(silentBufferCount) / Float(bufferCount)) * 100 : 0
-            print("🎙️ [MIC-DEBUG] buffer #\(bufferCount): lastRMS=\(String(format: "%.6f", rms)), silent=\(silentBufferCount) (\(String(format: "%.0f", silentPct))%), gotSpeech=\(hasEverReceivedSpeech)")
+            print("🎙️ [MIC-DEBUG] buffer #\(bufferCount): silent=\(String(format: "%.0f", silentPct))%, gotSpeech=\(hasEverReceivedSpeech)")
         }
     }
     
