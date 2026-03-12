@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3 — + Audio Health Monitoring
+// MeetingCopilot v4.3.1 — + App Selection + Audio Health
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -31,8 +31,14 @@ final class MeetingAICoordinator {
         remoteActive: false, localActive: false,
         remoteLastReceived: nil, localLastReceived: nil,
         remoteSegmentCount: 0, localSegmentCount: 0,
-        startupMessage: nil
+        startupMessage: nil, detectedAppName: nil
     )
+
+    // ★ App Selection
+    var detectedApps: [DetectedAppInfo] = []
+    var showAppPicker: Bool = false
+    var isScanning: Bool = false
+    private(set) var detectedAppName: String = ""
 
     // MARK: 子系統
     private let pipeline: TranscriptPipeline
@@ -42,10 +48,11 @@ final class MeetingAICoordinator {
     private var eventConsumerTask: Task<Void, Never>?
     private var strategyTask: Task<Void, Never>?
     private var tpUpdateTask: Task<Void, Never>?
-    private var audioHealthTask: Task<Void, Never>?   // ★
+    private var audioHealthTask: Task<Void, Never>?
 
     private var currentSessionRecord: MeetingSessionRecord?
     private let modelContext: ModelContext
+    private var pendingConfig: AudioCaptureConfiguration?
 
     init(claudeAPIKey: String, claudeModel: String = "claude-sonnet-4-20250514",
          notebookLMConfig: NotebookLMConfig = .default, meetingContext: MeetingContext) {
@@ -64,6 +71,41 @@ final class MeetingAICoordinator {
     }
     func updateContext(_ context: MeetingContext) async { await orchestrator.updateContext(context) }
 
+    // MARK: - ★ Step 1: 掃描 App（用戶按下開始會議後的第一步）
+    
+    /// 掃描支援的 App，決定是否顯示選擇器
+    /// - 0 個 App → 顯示錯誤
+    /// - 1 個 App → 自動啟動
+    /// - 2+ 個 App → 顯示 App Picker
+    func scanAndPrepare(config: AudioCaptureConfiguration = .default) async {
+        isScanning = true
+        pendingConfig = config
+        
+        let apps = await AppScanner.scanActiveApps()
+        isScanning = false
+        
+        if apps.isEmpty {
+            captureState = .error(.noAudioSourceFound)
+        } else if apps.count == 1 {
+            // 單一 App → 直接啟動
+            await startMeeting(config: config.withTarget(apps[0].app))
+        } else {
+            // 多個 App → 顯示選擇器
+            detectedApps = apps
+            showAppPicker = true
+        }
+    }
+    
+    // MARK: - ★ Step 2: 用戶選擇 App 後啟動
+    
+    func startMeetingWithApp(_ app: MeetingApp) async {
+        showAppPicker = false
+        let config = pendingConfig ?? .default
+        await startMeeting(config: config.withTarget(app))
+    }
+
+    // MARK: - Start Meeting
+    
     func startMeeting(config: AudioCaptureConfiguration = .default) async {
         do {
             try await pipeline.start(config: config)
@@ -72,8 +114,9 @@ final class MeetingAICoordinator {
             self.hasDualStream = await pipeline.hasDualStream
         } catch { self.captureState = .error(.engineStartFailed("引擎啟動失敗")); return }
 
-        // ★ 立即同步音訊健康狀態（含啟動訊息）
+        // ★ 立即同步音訊健康狀態（含啟動訊息 + App 名稱）
         self.audioHealth = await pipeline.audioHealth
+        self.detectedAppName = audioHealth.detectedAppName ?? ""
 
         await orchestrator.checkNotebookLMAvailability()
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
@@ -88,7 +131,7 @@ final class MeetingAICoordinator {
         try? modelContext.save()
 
         startPipelineConsumer(); startEventConsumer(); startPeriodicStrategy()
-        startTPUpdateLoop(); startAudioHealthLoop()   // ★
+        startTPUpdateLoop(); startAudioHealthLoop()
         stats.sessionStartTime = Date()
     }
 
@@ -98,12 +141,14 @@ final class MeetingAICoordinator {
         await pipeline.stop(); await orchestrator.markSessionEnd()
         captureState = .idle; activeEngineType = nil
         isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
+        detectedAppName = ""
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
         self.audioHealth = AudioHealthStatus(
             remoteActive: false, localActive: false,
             remoteLastReceived: nil, localLastReceived: nil,
-            remoteSegmentCount: 0, localSegmentCount: 0, startupMessage: nil
+            remoteSegmentCount: 0, localSegmentCount: 0,
+            startupMessage: nil, detectedAppName: nil
         )
 
         if let record = currentSessionRecord {
@@ -237,6 +282,6 @@ struct SessionStats {
     var estimatedClaudeCost: Double { Double(claudeQueries + strategyAnalyses) * 0.022 }
     var summary: String {
         let d = sessionDuration.map { "\(Int($0 / 60))m" } ?? "N/A"
-        return "\(d) | Cards: \(totalCards) (🔵\(localMatches) 📚\(notebookLMQueries) 🟣\(claudeQueries) 🟠\(strategyAnalyses)) | Lat: \(String(format: "%.0f", averageClaudeLatencyMs))ms | $\(String(format: "%.2f", estimatedClaudeCost))"
+        return "\(d) | Cards: \(totalCards) (🟢\(localMatches) 📚\(notebookLMQueries) 🟣\(claudeQueries) 🟠\(strategyAnalyses)) | Lat: \(String(format: "%.0f", averageClaudeLatencyMs))ms | $\(String(format: "%.2f", estimatedClaudeCost))"
     }
 }
