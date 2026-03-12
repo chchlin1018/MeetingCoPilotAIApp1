@@ -1,6 +1,6 @@
 // UsageExample.swift
 // MeetingCopilot v4.3.1 — SwiftUI Main View
-// Updated: Larger fonts + First TP in teleprompter
+// Updated: Larger fonts + First TP in teleprompter + App Selection
 
 import SwiftUI
 import AppKit
@@ -114,6 +114,7 @@ struct MeetingTeleprompterView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
+    // ★ 修復：使用 result.selectedApp 建立 config
     private func loadPrepAndStart(_ result: MeetingPrepResult) async {
         meetingTitle = result.context.goals.first ?? "Meeting"
         activeSpeechLanguage = result.speechLocale.identifier
@@ -123,7 +124,9 @@ struct MeetingTeleprompterView: View {
         let config = AudioCaptureConfiguration(
             sampleRate: 48000.0, channelCount: 1,
             speechLocale: result.speechLocale,
-            enablePartialResults: true, bufferSize: 1024, autoDetectMeetingApp: true
+            enablePartialResults: true, bufferSize: 1024,
+            autoDetectMeetingApp: result.selectedApp == nil,
+            targetApp: result.selectedApp
         )
         await coordinator.startMeeting(config: config)
         isSessionActive = true
@@ -135,7 +138,6 @@ struct MeetingTeleprompterView: View {
             startupBannerMessage = msg
             startupBannerIsError = msg.contains("⚠️") || msg.contains("❌")
             withAnimation(.easeInOut(duration: 0.3)) { showStartupBanner = true }
-            // 成功時 5 秒後自動消失
             if !startupBannerIsError {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                     withAnimation { showStartupBanner = false }
@@ -357,6 +359,17 @@ struct MeetingTeleprompterView: View {
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color.green.opacity(0.1)).cornerRadius(4)
             }
+
+            // ★ 偵測到的 App 名稱
+            if !coordinator.detectedAppName.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "app.connected.to.app.below.fill").font(.system(size: 9))
+                    Text(coordinator.detectedAppName).font(.system(size: 10, weight: .semibold, design: .monospaced))
+                }.foregroundColor(.cyan)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Color.cyan.opacity(0.1)).cornerRadius(4)
+            }
+
             if isSessionActive {
                 Text(activeSpeechLanguage)
                     .font(.system(size: 10, design: .monospaced)).foregroundColor(.blue)
@@ -482,7 +495,7 @@ struct MeetingTeleprompterView: View {
         }.padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.1)).cornerRadius(4)
     }
 
-    // MARK: ★ Transcript Panel — 字體放大
+    // MARK: ★ Transcript Panel
 
     private var transcriptPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -508,15 +521,11 @@ struct MeetingTeleprompterView: View {
                             Text("正在聆聽...").font(.system(size: 16)).foregroundColor(.gray.opacity(0.4))
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                         }
-
-                        // 已確認的逐字稿（isFinal entries）— ★ 字體 16pt
                         LazyVStack(alignment: .leading, spacing: 6) {
                             ForEach(coordinator.transcriptEntries) { entry in
                                 TranscriptEntryRow(entry: entry, isDualStream: coordinator.hasDualStream).id(entry.id)
                             }
                         }.padding(.horizontal, 12)
-
-                        // ★ 即時 Partial Results — 字體 15pt
                         if isSessionActive && !coordinator.recentTranscript.isEmpty {
                             let isLocal = coordinator.recentTranscript.contains("[我方]")
                             let partialColor: Color = isLocal ? .yellow : .cyan
@@ -546,7 +555,7 @@ struct MeetingTeleprompterView: View {
         }.background(Color(hex: "0D0D14"))
     }
 
-    // MARK: ★ Teleprompter Panel — 開場顯示第一個 TP
+    // MARK: ★ Teleprompter Panel
 
     private var teleprompterPanel: some View {
         VStack(spacing: 0) {
@@ -562,7 +571,6 @@ struct MeetingTeleprompterView: View {
                         Text("點擊「準備會議」開始").font(.system(size: 14)).foregroundColor(.gray)
                     }.frame(maxWidth: .infinity).padding(.top, 100)
                 } else if coordinator.cards.isEmpty && isSessionActive {
-                    // ★ 會議開始但尚無 AI 卡片 → 顯示第一個 MUST TP 作為提示
                     VStack(alignment: .leading, spacing: 16) {
                         if let firstMust = coordinator.talkingPoints.first(where: { $0.priority == .must && $0.status == .pending }) {
                             VStack(alignment: .leading, spacing: 8) {
@@ -589,8 +597,6 @@ struct MeetingTeleprompterView: View {
                             .cornerRadius(12)
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.2), lineWidth: 1))
                         }
-
-                        // 其他待講的 TP 清單
                         let pendingTPs = coordinator.talkingPoints.filter { $0.status == .pending }
                         if pendingTPs.count > 1 {
                             VStack(alignment: .leading, spacing: 6) {
@@ -611,7 +617,6 @@ struct MeetingTeleprompterView: View {
                             .background(Color.white.opacity(0.03))
                             .cornerRadius(8)
                         }
-
                         Text("等待對方提問，AI 將即時回應...")
                             .font(.system(size: 13))
                             .foregroundColor(.gray.opacity(0.4))
@@ -745,7 +750,7 @@ struct MeetingTeleprompterView: View {
     }
 }
 
-// MARK: - Transcript Entry Row — ★ 字體 16pt，對方=青色 我方=黃色
+// MARK: - Transcript Entry Row
 struct TranscriptEntryRow: View {
     let entry: TranscriptEntry; let isDualStream: Bool
     var body: some View {
