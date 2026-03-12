@@ -1,6 +1,6 @@
 // SystemAudioCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Primary: ScreenCaptureKit System Audio Capture
-// Fixed: Speech error handling + restart loop prevention
+// + Diagnostics for PostMeetingLogger
 
 import Foundation
 import ScreenCaptureKit
@@ -36,8 +36,27 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     private var convertFailCount: Int = 0
     private var restartCount: Int = 0
     private var hasEverReceivedSpeech: Bool = false
+    private var segmentCount: Int = 0
+    private var errorHistory: [String] = []
     
     var detectedAppName: String? { detectedMeetingApp?.displayName }
+    
+    // ★ 診斷資訊
+    var diagnosticInfo: EngineDiagnosticInfo {
+        EngineDiagnosticInfo(
+            engineType: "SystemAudio (ScreenCaptureKit)",
+            isActive: _state.isActive,
+            bufferCount: bufferCount,
+            restartCount: restartCount,
+            hasReceivedSpeech: hasEverReceivedSpeech,
+            segmentCount: segmentCount,
+            useOnDevice: false,
+            lastRMS: 0,
+            silentBufferCount: 0,
+            detectedAppName: detectedMeetingApp?.displayName,
+            errors: errorHistory
+        )
+    }
     
     init(configuration: AudioCaptureConfiguration = .default) {
         self.config = configuration
@@ -48,17 +67,12 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         self.streamContinuation = continuation
     }
     
-    // MARK: - Start
-    
     func start() async throws {
         guard !_state.isActive else { return }
         _state = .preparing
-        
         try await requestSpeechPermission()
         try setupSpeechRecognizer()
-        
         let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        
         let targetApp: MeetingApp
         if let specified = config.targetApp {
             targetApp = specified
@@ -67,47 +81,26 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
             targetApp = try findMeetingApp(in: availableContent)
         }
         detectedMeetingApp = targetApp
-        
-        let filter = SCContentFilter(
-            desktopIndependentWindow: try findMainWindow(for: targetApp, in: availableContent)
-        )
-        
+        let filter = SCContentFilter(desktopIndependentWindow: try findMainWindow(for: targetApp, in: availableContent))
         let streamConfig = SCStreamConfiguration()
-        streamConfig.capturesAudio = true
-        streamConfig.excludesCurrentProcessAudio = true
+        streamConfig.capturesAudio = true; streamConfig.excludesCurrentProcessAudio = true
         streamConfig.width = 1; streamConfig.height = 1
         streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: 1)
         streamConfig.showsCursor = false
-        streamConfig.sampleRate = Int(config.sampleRate)
-        streamConfig.channelCount = config.channelCount
-        
+        streamConfig.sampleRate = Int(config.sampleRate); streamConfig.channelCount = config.channelCount
         streamOutput = AudioStreamOutput(
-            onAudioBuffer: { [weak self] sampleBuffer in
-                Task { [weak self] in await self?.processAudioBuffer(sampleBuffer) }
-            },
-            onError: { [weak self] error in
-                Task { [weak self] in await self?.handleCaptureError(error) }
-            }
+            onAudioBuffer: { [weak self] sb in Task { [weak self] in await self?.processAudioBuffer(sb) } },
+            onError: { [weak self] e in Task { [weak self] in await self?.handleCaptureError(e) } }
         )
-        
         captureStream = SCStream(filter: filter, configuration: streamConfig, delegate: streamOutput)
-        guard let captureStream = captureStream, let streamOutput = streamOutput else {
-            throw AudioCaptureError.engineStartFailed("Cannot create SCStream")
-        }
-        try captureStream.addStreamOutput(
-            streamOutput, type: .audio,
-            sampleHandlerQueue: DispatchQueue(label: "com.meetingcopilot.audio.capture", qos: .userInteractive)
-        )
-        
+        guard let cs = captureStream, let so = streamOutput else { throw AudioCaptureError.engineStartFailed("Cannot create SCStream") }
+        try cs.addStreamOutput(so, type: .audio, sampleHandlerQueue: DispatchQueue(label: "com.meetingcopilot.audio.capture", qos: .userInteractive))
         speechFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000.0, channels: 1, interleaved: false)
         try startSpeechRecognition()
-        try await captureStream.startCapture()
-        
+        try await cs.startCapture()
         _state = .capturing
         print("🎯 SystemAudioCaptureEngine started: \(targetApp.displayName)")
     }
-    
-    // MARK: - Stop
     
     func stop() async {
         if let stream = captureStream { try? await stream.stopCapture() }
@@ -115,239 +108,150 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         recognitionRequest?.endAudio(); recognitionTask?.cancel()
         recognitionTask = nil; recognitionRequest = nil
         audioConverter = nil; speechFormat = nil; lastInputFormat = nil
-        converterInitialized = false; bufferCount = 0; convertFailCount = 0
-        detectedMeetingApp = nil
+        converterInitialized = false
         streamContinuation?.finish(); streamContinuation = nil
         _state = .idle
-        print("⏹️ Remote: stopped (buffers: \(bufferCount), restarts: \(restartCount), gotSpeech: \(hasEverReceivedSpeech))")
+        print("⏹️ Remote stopped (buf:\(bufferCount) rst:\(restartCount) seg:\(segmentCount) speech:\(hasEverReceivedSpeech))")
     }
-    
-    // MARK: - Permissions
     
     private func requestSpeechPermission() async throws {
-        let status = await withCheckedContinuation { cont in
-            SFSpeechRecognizer.requestAuthorization { s in cont.resume(returning: s) }
-        }
+        let status = await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { s in c.resume(returning: s) } }
         guard status == .authorized else { throw AudioCaptureError.permissionDenied }
     }
-    
     private func setupSpeechRecognizer() throws {
         speechRecognizer = SFSpeechRecognizer(locale: config.speechLocale)
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            throw AudioCaptureError.speechRecognizerUnavailable
-        }
-        if recognizer.supportsOnDeviceRecognition {
-            print("  On-device recognition available (fallback)")
-        }
+        guard let r = speechRecognizer, r.isAvailable else { throw AudioCaptureError.speechRecognizerUnavailable }
+        if r.supportsOnDeviceRecognition { print("  On-device recognition available (fallback)") }
     }
-    
-    // MARK: - Smart App Detection
     
     private func findMeetingApp(in content: SCShareableContent) throws -> MeetingApp {
         guard config.autoDetectMeetingApp else { throw AudioCaptureError.noAudioSourceFound }
-        struct DetectedApp { let app: MeetingApp; let hasActiveWindow: Bool; let windowArea: CGFloat; let priority: Int }
-        var candidates: [DetectedApp] = []
+        struct DA { let app: MeetingApp; let hasActive: Bool; let area: CGFloat; let priority: Int }
+        var cands: [DA] = []
         for app in content.applications {
-            guard let meetingApp = MeetingApp.from(bundleID: app.bundleIdentifier) else { continue }
-            let activeWindows = content.windows.filter { w in
-                w.owningApplication?.bundleIdentifier == app.bundleIdentifier && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200
-            }
-            let hasActive = !activeWindows.isEmpty
-            let maxArea = activeWindows.map { $0.frame.width * $0.frame.height }.max() ?? 0
-            print("  🔍 Scan: \(meetingApp.displayName) | active=\(hasActive) | area=\(Int(maxArea)) | priority=\(meetingApp.detectionPriority)")
-            candidates.append(DetectedApp(app: meetingApp, hasActiveWindow: hasActive, windowArea: maxArea, priority: meetingApp.detectionPriority))
+            guard let ma = MeetingApp.from(bundleID: app.bundleIdentifier) else { continue }
+            let wins = content.windows.filter { w in w.owningApplication?.bundleIdentifier == app.bundleIdentifier && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200 }
+            let hasA = !wins.isEmpty; let area = wins.map { $0.frame.width * $0.frame.height }.max() ?? 0
+            cands.append(DA(app: ma, hasActive: hasA, area: area, priority: ma.detectionPriority))
         }
-        let browserBundles = ["com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac", "org.mozilla.firefox"]
-        for app in content.applications {
-            if browserBundles.contains(app.bundleIdentifier) {
-                for window in content.windows where window.owningApplication?.bundleIdentifier == app.bundleIdentifier {
-                    if let title = window.title, (title.contains("Meet") || title.contains("meet.google.com")) {
-                        let area = window.frame.width * window.frame.height
-                        candidates.append(DetectedApp(app: .googleMeet, hasActiveWindow: true, windowArea: area, priority: 1))
-                        break
-                    }
+        let browsers = ["com.google.Chrome","com.apple.Safari","com.microsoft.edgemac","org.mozilla.firefox"]
+        for app in content.applications where browsers.contains(app.bundleIdentifier) {
+            for w in content.windows where w.owningApplication?.bundleIdentifier == app.bundleIdentifier {
+                if let t = w.title, t.contains("Meet") || t.contains("meet.google.com") {
+                    cands.append(DA(app: .googleMeet, hasActive: true, area: w.frame.width * w.frame.height, priority: 1)); break
                 }
             }
         }
-        let sorted = candidates.sorted { a, b in
-            if a.hasActiveWindow != b.hasActiveWindow { return a.hasActiveWindow }
-            if a.priority != b.priority { return a.priority < b.priority }
-            return a.windowArea > b.windowArea
-        }
-        if let best = sorted.first(where: { $0.hasActiveWindow }) {
-            print("  📱 Selected: \(best.app.displayName) (priority=\(best.priority))")
-            return best.app
-        }
+        let sorted = cands.sorted { a, b in if a.hasActive != b.hasActive { return a.hasActive }; if a.priority != b.priority { return a.priority < b.priority }; return a.area > b.area }
+        if let best = sorted.first(where: { $0.hasActive }) { return best.app }
         throw AudioCaptureError.noAudioSourceFound
     }
-    
-    private func findMainWindow(for meetingApp: MeetingApp, in content: SCShareableContent) throws -> SCWindow {
-        let appWindows = content.windows.filter { w in
-            w.owningApplication?.bundleIdentifier == meetingApp.bundleIdentifier && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200
-        }
-        guard let mainWindow = appWindows.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
-            throw AudioCaptureError.noAudioSourceFound
-        }
-        return mainWindow
+    private func findMainWindow(for app: MeetingApp, in content: SCShareableContent) throws -> SCWindow {
+        let wins = content.windows.filter { w in w.owningApplication?.bundleIdentifier == app.bundleIdentifier && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200 }
+        guard let main = wins.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else { throw AudioCaptureError.noAudioSourceFound }
+        return main
     }
-    
-    // MARK: - Speech Recognition
     
     private func startSpeechRecognition() throws {
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let request = recognitionRequest else {
-            throw AudioCaptureError.engineStartFailed("Cannot create recognition request")
-        }
-        request.shouldReportPartialResults = config.enablePartialResults
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+        guard let req = recognitionRequest else { throw AudioCaptureError.engineStartFailed("Cannot create request") }
+        req.shouldReportPartialResults = config.enablePartialResults
+        recognitionTask = speechRecognizer?.recognitionTask(with: req) { [weak self] result, error in
             guard let self = self else { return }
             Task { [weak self] in
                 guard let self = self else { return }
-                if let result = result {
+                if let r = result {
                     await self.markSpeechReceived()
-                    let segment = TranscriptSegment(
-                        text: result.bestTranscription.formattedString, timestamp: Date(),
-                        isFinal: result.isFinal,
-                        confidence: result.bestTranscription.segments.last?.confidence ?? 0,
-                        locale: self.config.speechLocale, source: .systemAudio
-                    )
-                    await self.emitSegment(segment)
+                    await self.incrementSegmentCount()
+                    let seg = TranscriptSegment(text: r.bestTranscription.formattedString, timestamp: Date(), isFinal: r.isFinal, confidence: r.bestTranscription.segments.last?.confidence ?? 0, locale: self.config.speechLocale, source: .systemAudio)
+                    await self.emitSegment(seg)
                 }
-                if let error = error { await self.handleSpeechError(error) }
+                if let e = error { await self.handleSpeechError(e) }
             }
         }
     }
     
-    // MARK: - Smart Speech Error Handling
-    
     private func handleSpeechError(_ error: Error) async {
-        let nsError = error as NSError
-        let code = nsError.code
-        let description = error.localizedDescription
-        if description.contains("No speech detected") || code == 1110 {
-            if restartCount < 3 { print("💤 Remote: no speech yet (waiting 5s before restart #\(restartCount + 1))") }
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await restartSpeechRecognition()
-            return
+        let ns = error as NSError; let code = ns.code; let desc = error.localizedDescription
+        let entry = "[\(code)] \(desc)"
+        if errorHistory.count < 50 { errorHistory.append(entry) }
+        if desc.contains("No speech detected") || code == 1110 {
+            if restartCount < 3 { print("💤 Remote: no speech (5s wait)") }
+            try? await Task.sleep(nanoseconds: 5_000_000_000); await restartSpeechRecognition(); return
         }
-        if nsError.domain == "kAFAssistantErrorDomain" && code == 216 {
-            print("⏰ Remote: 60s timeout, restarting...")
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            await restartSpeechRecognition()
-            return
+        if ns.domain == "kAFAssistantErrorDomain" && code == 216 {
+            try? await Task.sleep(nanoseconds: 300_000_000); await restartSpeechRecognition(); return
         }
-        print("⚠️ Remote speech error [\(code)]: \(description)")
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        await restartSpeechRecognition()
+        print("⚠️ Remote speech error [\(code)]: \(desc)")
+        try? await Task.sleep(nanoseconds: 1_000_000_000); await restartSpeechRecognition()
     }
     
     private func restartSpeechRecognition() async {
         recognitionRequest?.endAudio(); recognitionTask?.cancel()
         recognitionTask = nil; recognitionRequest = nil
         guard _state.isActive else { return }
-        do {
-            try startSpeechRecognition()
-            restartCount += 1
-            if restartCount <= 5 || restartCount % 10 == 0 {
-                print("🔄 Remote: speech restarted (#\(restartCount), buffers: \(bufferCount))")
-            }
-        } catch { await handleCaptureError(.engineStartFailed("Speech restart failed: \(error)")) }
+        do { try startSpeechRecognition(); restartCount += 1
+            if restartCount <= 5 || restartCount % 10 == 0 { print("🔄 Remote: restart #\(restartCount) (buf:\(bufferCount))") }
+        } catch { await handleCaptureError(.engineStartFailed("restart failed")) }
     }
     
-    private func markSpeechReceived() {
-        if !hasEverReceivedSpeech {
-            hasEverReceivedSpeech = true
-            print("🎉 Remote: first speech recognized!")
-        }
+    private func markSpeechReceived() { if !hasEverReceivedSpeech { hasEverReceivedSpeech = true; print("🎉 Remote: first speech!") } }
+    private func incrementSegmentCount() { segmentCount += 1 }
+    
+    private func ensureConverter(for fmt: AVAudioFormat) -> Bool {
+        guard let tf = speechFormat else { return false }
+        if converterInitialized, let l = lastInputFormat, l.sampleRate == fmt.sampleRate && l.channelCount == fmt.channelCount { return audioConverter != nil }
+        audioConverter = AVAudioConverter(from: fmt, to: tf); lastInputFormat = fmt; converterInitialized = true
+        return audioConverter != nil
     }
     
-    // MARK: - Dynamic Audio Converter
-    
-    private func ensureConverter(for inputFormat: AVAudioFormat) -> Bool {
-        guard let targetFormat = speechFormat else { return false }
-        if converterInitialized, let last = lastInputFormat,
-           last.sampleRate == inputFormat.sampleRate && last.channelCount == inputFormat.channelCount {
-            return audioConverter != nil
-        }
-        if !converterInitialized { print("🔊 Audio format: \(inputFormat.sampleRate)Hz / \(inputFormat.channelCount)ch") }
-        audioConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
-        lastInputFormat = inputFormat; converterInitialized = true
-        if audioConverter == nil { print("❌ Cannot create audio converter"); return false }
-        print("✅ Converter: \(inputFormat.sampleRate)Hz → \(targetFormat.sampleRate)Hz")
-        return true
-    }
-    
-    // MARK: - Process Audio Buffer
-    
-    private func processAudioBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard let formatDescription = sampleBuffer.formatDescription,
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else { return }
+    private func processAudioBuffer(_ sb: CMSampleBuffer) {
+        guard let fd = sb.formatDescription, let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd) else { return }
         bufferCount += 1
-        if appendDirectly(sampleBuffer: sampleBuffer, asbd: asbd.pointee) { return }
-        guard let pcmBuffer = convertToPCMBuffer(sampleBuffer: sampleBuffer, asbd: asbd.pointee) else { return }
-        let inputFormat = pcmBuffer.format
-        if abs(inputFormat.sampleRate - 16000.0) < 100 { recognitionRequest?.append(pcmBuffer); return }
-        guard ensureConverter(for: inputFormat), let converter = audioConverter, let targetFormat = speechFormat else {
-            recognitionRequest?.append(pcmBuffer); return
-        }
-        let ratio = inputFormat.sampleRate / targetFormat.sampleRate
-        let targetFrameCount = AVAudioFrameCount(Double(pcmBuffer.frameLength) / ratio)
-        guard targetFrameCount > 0, let convertedBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: targetFrameCount) else { return }
-        var conversionError: NSError?
-        let status = converter.convert(to: convertedBuffer, error: &conversionError) { _, outStatus in
-            outStatus.pointee = .haveData; return pcmBuffer
-        }
-        if status == .haveData { recognitionRequest?.append(convertedBuffer) }
-        else if status == .error {
-            convertFailCount += 1
-            if convertFailCount <= 3 { print("⚠️ Convert error #\(convertFailCount)") }
-            converterInitialized = false; audioConverter = nil
-            recognitionRequest?.append(pcmBuffer)
-        }
+        if appendDirectly(sampleBuffer: sb, asbd: asbd.pointee) { return }
+        guard let pcm = convertToPCMBuffer(sampleBuffer: sb, asbd: asbd.pointee) else { return }
+        if abs(pcm.format.sampleRate - 16000.0) < 100 { recognitionRequest?.append(pcm); return }
+        guard ensureConverter(for: pcm.format), let conv = audioConverter, let tf = speechFormat else { recognitionRequest?.append(pcm); return }
+        let ratio = pcm.format.sampleRate / tf.sampleRate
+        let tc = AVAudioFrameCount(Double(pcm.frameLength) / ratio)
+        guard tc > 0, let cb = AVAudioPCMBuffer(pcmFormat: tf, frameCapacity: tc) else { return }
+        var ce: NSError?
+        let st = conv.convert(to: cb, error: &ce) { _, os in os.pointee = .haveData; return pcm }
+        if st == .haveData { recognitionRequest?.append(cb) }
+        else if st == .error { convertFailCount += 1; converterInitialized = false; audioConverter = nil; recognitionRequest?.append(pcm) }
     }
     
     private func appendDirectly(sampleBuffer: CMSampleBuffer, asbd: AudioStreamBasicDescription) -> Bool {
-        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: asbd.mSampleRate, channels: AVAudioChannelCount(asbd.mChannelsPerFrame), interleaved: false) else { return false }
-        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
-        guard frameCount > 0, let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else { return false }
-        pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return false }
-        var lengthAtOffset = 0, totalLength = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset, totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
-        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return false }
-        if let channelData = pcmBuffer.floatChannelData {
-            memcpy(channelData[0], data, min(frameCount * MemoryLayout<Float>.size, totalLength))
-        }
-        recognitionRequest?.append(pcmBuffer)
-        if bufferCount == 1 {
-            print("🔊 First buffer: \(asbd.mSampleRate)Hz / \(asbd.mChannelsPerFrame)ch / \(frameCount) frames")
-            print("🔊 Strategy: direct append")
-        }
+        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: asbd.mSampleRate, channels: AVAudioChannelCount(asbd.mChannelsPerFrame), interleaved: false) else { return false }
+        let fc = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard fc > 0, let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(fc)) else { return false }
+        pcm.frameLength = AVAudioFrameCount(fc)
+        guard let bb = CMSampleBufferGetDataBuffer(sampleBuffer) else { return false }
+        var lo = 0, tl = 0; var dp: UnsafeMutablePointer<Int8>?
+        let s = CMBlockBufferGetDataPointer(bb, atOffset: 0, lengthAtOffsetOut: &lo, totalLengthOut: &tl, dataPointerOut: &dp)
+        guard s == kCMBlockBufferNoErr, let d = dp else { return false }
+        if let cd = pcm.floatChannelData { memcpy(cd[0], d, min(fc * MemoryLayout<Float>.size, tl)) }
+        recognitionRequest?.append(pcm)
+        if bufferCount == 1 { print("🔊 First buffer: \(asbd.mSampleRate)Hz / \(asbd.mChannelsPerFrame)ch / \(fc) frames"); print("🔊 Strategy: direct append") }
         return true
     }
     
     private func convertToPCMBuffer(sampleBuffer: CMSampleBuffer, asbd: AudioStreamBasicDescription) -> AVAudioPCMBuffer? {
-        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: asbd.mSampleRate, channels: AVAudioChannelCount(asbd.mChannelsPerFrame), interleaved: asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0) else { return nil }
-        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else { return nil }
-        pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
-        var lengthAtOffset = 0, totalLength = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset, totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
-        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return nil }
-        if let channelData = pcmBuffer.floatChannelData {
-            memcpy(channelData[0], data, min(frameCount * MemoryLayout<Float>.size, totalLength))
-        }
-        return pcmBuffer
+        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: asbd.mSampleRate, channels: AVAudioChannelCount(asbd.mChannelsPerFrame), interleaved: asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0) else { return nil }
+        let fc = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(fc)) else { return nil }
+        pcm.frameLength = AVAudioFrameCount(fc)
+        guard let bb = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
+        var lo = 0, tl = 0; var dp: UnsafeMutablePointer<Int8>?
+        let s = CMBlockBufferGetDataPointer(bb, atOffset: 0, lengthAtOffsetOut: &lo, totalLengthOut: &tl, dataPointerOut: &dp)
+        guard s == kCMBlockBufferNoErr, let d = dp else { return nil }
+        if let cd = pcm.floatChannelData { memcpy(cd[0], d, min(fc * MemoryLayout<Float>.size, tl)) }
+        return pcm
     }
     
-    private func emitSegment(_ segment: TranscriptSegment) { streamContinuation?.yield(segment) }
-    private func handleCaptureError(_ error: AudioCaptureError) { _state = .error(error) }
+    private func emitSegment(_ s: TranscriptSegment) { streamContinuation?.yield(s) }
+    private func handleCaptureError(_ e: AudioCaptureError) { _state = .error(e) }
 }
-
-// MARK: - SCStream Audio Output Handler
 
 final class AudioStreamOutput: NSObject, SCStreamOutput, SCStreamDelegate {
     private let onAudioBuffer: @Sendable (CMSampleBuffer) -> Void
@@ -355,11 +259,9 @@ final class AudioStreamOutput: NSObject, SCStreamOutput, SCStreamDelegate {
     init(onAudioBuffer: @escaping @Sendable (CMSampleBuffer) -> Void, onError: @escaping @Sendable (AudioCaptureError) -> Void) {
         self.onAudioBuffer = onAudioBuffer; self.onError = onError; super.init()
     }
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, sampleBuffer.isValid, CMSampleBufferGetNumSamples(sampleBuffer) > 0 else { return }
-        onAudioBuffer(sampleBuffer)
+    func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio, sb.isValid, CMSampleBufferGetNumSamples(sb) > 0 else { return }
+        onAudioBuffer(sb)
     }
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onError(.captureInterrupted(error.localizedDescription))
-    }
+    func stream(_ stream: SCStream, didStopWithError error: Error) { onError(.captureInterrupted(error.localizedDescription)) }
 }
