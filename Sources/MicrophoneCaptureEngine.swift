@@ -10,7 +10,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     
     nonisolated let engineType: AudioCaptureEngineType = .microphone
     
-    nonisolated var transcriptStream: AsyncStream&lt;TranscriptSegment&gt; {
+    nonisolated var transcriptStream: AsyncStream<TranscriptSegment> {
         AsyncStream { continuation in
             Task { await self.setStreamContinuation(continuation) }
         }
@@ -19,7 +19,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     nonisolated(unsafe) private var _state: AudioCaptureState = .idle
     nonisolated var state: AudioCaptureState { _state }
     
-    private var streamContinuation: AsyncStream&lt;TranscriptSegment&gt;.Continuation?
+    private var streamContinuation: AsyncStream<TranscriptSegment>.Continuation?
     private let audioEngine = AVAudioEngine()
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -31,14 +31,13 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private var useOnDevice: Bool = false
     private var lastRMS: Float = 0
     private var silentBufferCount: Int = 0
-    private var hasLoggedAudioLevel: Bool = false
     
     init(configuration: AudioCaptureConfiguration = .default) {
         self.config = configuration
         super.init()
     }
     
-    private func setStreamContinuation(_ continuation: AsyncStream&lt;TranscriptSegment&gt;.Continuation) {
+    private func setStreamContinuation(_ continuation: AsyncStream<TranscriptSegment>.Continuation) {
         self.streamContinuation = continuation
     }
     
@@ -51,7 +50,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         print("🎙️ [MIC-DEBUG] ====== MicrophoneCaptureEngine Starting ======")
         print("🎙️ [MIC-DEBUG] Locale: \(config.speechLocale.identifier)")
         
-        // ★ 檢查麥克風權限
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         print("🎙️ [MIC-DEBUG] Mic permission: \(micStatus.rawValue) (0=notDetermined, 1=restricted, 2=denied, 3=authorized)")
         
@@ -61,7 +59,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
             throw AudioCaptureError.speechRecognizerUnavailable
         }
         
-        // ★ 詳細 On-Device 資訊
         useOnDevice = recognizer.supportsOnDeviceRecognition
         print("🎙️ [MIC-DEBUG] recognizer.isAvailable = \(recognizer.isAvailable)")
         print("🎙️ [MIC-DEBUG] recognizer.supportsOnDeviceRecognition = \(useOnDevice)")
@@ -73,7 +70,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
         request.shouldReportPartialResults = config.enablePartialResults
         
-        // ★ 關鍵：麥克風用 On-Device 離線辨識
         if useOnDevice {
             request.requiresOnDeviceRecognition = true
             print("🎙️ [MIC-DEBUG] request.requiresOnDeviceRecognition = TRUE")
@@ -87,17 +83,11 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         print("🎙️ [MIC-DEBUG] inputNode format: \(recordingFormat.sampleRate)Hz / \(recordingFormat.channelCount)ch / \(recordingFormat.commonFormat.rawValue)")
         print("🎙️ [MIC-DEBUG] inputNode isVoiceProcessingEnabled: \(inputNode.isVoiceProcessingEnabled)")
         
-        // ★ 安裝 tap 時加入 RMS 計算
         inputNode.installTap(onBus: 0, bufferSize: config.bufferSize, format: recordingFormat) { [weak self] buffer, time in
             guard let self = self else { return }
             self.recognitionRequest?.append(buffer)
-            
-            // ★ 計算 RMS 音量
             let rms = self.calculateRMS(buffer: buffer)
-            
-            Task {
-                await self.incrementBufferCount(rms: rms)
-            }
+            Task { await self.incrementBufferCount(rms: rms) }
         }
         
         audioEngine.prepare()
@@ -112,20 +102,18 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         print("🎙️ [MIC-DEBUG] ====== MicrophoneCaptureEngine Ready ======")
     }
     
-    // MARK: - ★ RMS 計算（判斷麥克風是否有收到聲音）
+    // MARK: - RMS 計算
     
     nonisolated private func calculateRMS(buffer: AVAudioPCMBuffer) -> Float {
         guard let channelData = buffer.floatChannelData else { return 0 }
         let frames = Int(buffer.frameLength)
         guard frames > 0 else { return 0 }
-        
         var sum: Float = 0
         for i in 0..<frames {
             let sample = channelData[0][i]
             sum += sample * sample
         }
-        let rms = sqrt(sum / Float(frames))
-        return rms
+        return sqrt(sum / Float(frames))
     }
     
     // MARK: - Speech Recognition
@@ -141,19 +129,14 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
                     let isFinal = result.isFinal
                     let confidence = result.bestTranscription.segments.last?.confidence ?? 0
                     
-                    // ★ 前幾次辨識結果詳細 log
                     if !await self.hasEverReceivedSpeech || isFinal {
                         print("🎙️ [MIC-DEBUG] 🗣️ Speech result: isFinal=\(isFinal), confidence=\(String(format: "%.2f", confidence)), text=\"\(text.suffix(60))\"")
                     }
                     
                     await self.markSpeechReceived()
                     let segment = TranscriptSegment(
-                        text: text,
-                        timestamp: Date(),
-                        isFinal: isFinal,
-                        confidence: confidence,
-                        locale: self.config.speechLocale,
-                        source: .microphone
+                        text: text, timestamp: Date(), isFinal: isFinal,
+                        confidence: confidence, locale: self.config.speechLocale, source: .microphone
                     )
                     await self.emitSegment(segment)
                 }
@@ -163,7 +146,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
             }
         }
         
-        // ★ 檢查 recognitionTask 狀態
         if let task = recognitionTask {
             print("🎙️ [MIC-DEBUG] recognitionTask created, state=\(task.state.rawValue) (0=starting, 1=running, 2=finishing, 3=canceling, 4=completed)")
         } else {
@@ -179,7 +161,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         let domain = nsError.domain
         let description = error.localizedDescription
         
-        // ★ 詳細錯誤 log
         print("⚠️ [MIC-DEBUG] Speech error: domain=\(domain), code=\(code), desc=\"\(description)\"")
         print("⚠️ [MIC-DEBUG]   buffers=\(bufferCount), restarts=\(restartCount), gotSpeech=\(hasEverReceivedSpeech), lastRMS=\(String(format: "%.6f", lastRMS))")
         
@@ -245,9 +226,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         
         let newRequest = SFSpeechAudioBufferRecognitionRequest()
         newRequest.shouldReportPartialResults = config.enablePartialResults
-        if useOnDevice {
-            newRequest.requiresOnDeviceRecognition = true
-        }
+        if useOnDevice { newRequest.requiresOnDeviceRecognition = true }
         self.recognitionRequest = newRequest
         
         let inputNode = audioEngine.inputNode
@@ -280,19 +259,13 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private func incrementBufferCount(rms: Float) {
         bufferCount += 1
         lastRMS = rms
+        if rms < 0.001 { silentBufferCount += 1 }
         
-        // ★ RMS < 0.001 視為靜音
-        if rms < 0.001 {
-            silentBufferCount += 1
-        }
-        
-        // ★ 前 10 個 buffer 都印 RMS（診斷麥克風是否有聲音）
         if bufferCount <= 10 {
             let db = rms > 0 ? 20 * log10(rms) : -120
             print("🎙️ [MIC-DEBUG] buffer #\(bufferCount): RMS=\(String(format: "%.6f", rms)) (\(String(format: "%.1f", db))dB) \(rms < 0.001 ? "🔇 SILENT" : rms < 0.01 ? "🔈 quiet" : "🔊 AUDIO")")
         }
         
-        // ★ 每 500 個 buffer 印一次摘要
         if bufferCount % 500 == 0 {
             let silentPct = bufferCount > 0 ? (Float(silentBufferCount) / Float(bufferCount)) * 100 : 0
             print("🎙️ [MIC-DEBUG] buffer #\(bufferCount): lastRMS=\(String(format: "%.6f", rms)), silent=\(silentBufferCount) (\(String(format: "%.0f", silentPct))%), gotSpeech=\(hasEverReceivedSpeech)")
