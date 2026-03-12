@@ -22,18 +22,21 @@
 - [x] 10 Talking Points + 12 Q&A 載入成功
 - [x] ❗ 需要授權螢幕錄製權限給 MeetingCopilot
 
-### ★ Post-Meeting Diagnostic Logger（新功能）
+### ★ Post-Meeting Diagnostic Logger
 - [x] PostMeetingLogger.swift 新增（第 19 個 Swift 檔案）
-- [x] 已加入 Xcode project.pbxproj Build Target
+- [x] 已加入 Xcode project.pbxproj Build Target（不需手動加入）
 - [x] UsageExample.swift 加入 coordinator.setMeetingInfo()
 - [x] 會議結束時自動產生 _LOG.txt 到 MeetingTEXT 資料夾
-- [x] 完整記錄：系統狀態、音源 App、連接狀態、發言時間、AI 使用量
+
+### ★ Logger Bug 修復（2026-03-12）
+- [x] **Bug fix: start_time=N/A** — `stats = await orchestrator.stats` 覆蓋了 sessionStartTime → 用 `_sessionStartTime` 私有變數保存，stopMeeting 時還原
+- [x] **Bug fix: speaking_time 全部為 0** — 只計算 isFinal entries，但 partial-only 時為 0 → Fallback 用 engine diagnosticInfo.segmentCount 估算（每 segment ≈ 20 字中文 / 30 字英文）
 
 ### Log 內容區段
 | 區段 | 記錄內容 |
 |------|----------|
 | [STATUS] | ✅ ALL OK / ⚠️ WARNINGS / ❌ ISSUES |
-| [MEETING] | 標題、時間、語言、音源 App、雙串流、轉錄條數 |
+| [MEETING] | 標題、時間、時長、語言、音源 App、雙串流、轉錄條數 |
 | [SYSTEM] | 螢幕錄製 TCC、麥克風裝置、藍牙偵測 |
 | [CONNECTIONS] | Claude API / Notion / NotebookLM 連接狀態 |
 | [REMOTE_ENGINE] | 對方：segments、buffers、restarts、errors |

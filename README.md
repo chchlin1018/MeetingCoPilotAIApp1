@@ -32,7 +32,7 @@ macOS 原生 AI 會議助手：ScreenCaptureKit 擷取會議音訊 + Apple Speec
 | AirPods Pro 藍牙 | ❌ | 程式自動切換到內建麥克風，AirPods 耳機不受影響 |
 | 外接 USB 麥克風 | ✅ | 應該正常 |
 
-## Post-Meeting Diagnostic Log（新功能）
+## Post-Meeting Diagnostic Log
 
 每次會議結束時自動產生診斷 Log 到 MeetingTEXT/ 資料夾：
 
@@ -54,6 +54,7 @@ macOS 原生 AI 會議助手：ScreenCaptureKit 擷取會議音訊 + Apple Speec
 4. 系統設定 → 聲音 → 輸入 → 確認是 MacBook 內建麥克風
 5. Cmd+R Build & Run（19 Swift files 自動編譯）
 6. 按「準備會議」→ 填寫資訊 → 按「開始會議」
+7. 會議結束 → 診斷 Log 自動儲存到 MeetingTEXT/
 
 ## 已知限制
 

@@ -22,7 +22,7 @@ Reset if needed: `tccutil reset ScreenCapture com.RealityMatrix.MeetingCopilot`
 
 ## ★ Post-Meeting Diagnostic Logger
 
-New PostMeetingLogger.swift (19th Swift file) auto-saves diagnostic log on meeting end.
+PostMeetingLogger.swift (19th Swift file) auto-saves diagnostic log on meeting end.
 
 File: `MeetingTEXT/YYYY-MM-DD_HHMM_title_LOG.txt`
 
@@ -31,7 +31,7 @@ Integration:
 - MeetingAICoordinator.stopMeeting(): collects diagnostics before stopping engines
 - PostMeetingLogger.saveLog(): writes TXT to MeetingTEXT folder
 
-Log sections:
+### Log Sections
 
 | Section | Content |
 |---------|----------|
@@ -47,12 +47,28 @@ Log sections:
 | [ERROR_LOG] | collected errors |
 | [SUMMARY] | human-readable one-liner |
 
-Overall status logic:
+### Bug Fixes (2026-03-12)
+
+**start_time=N/A fix:**
+- Root cause: `stats = await orchestrator.stats` overwrites sessionStartTime
+- Fix: Save to `_sessionStartTime` private var, restore after orchestrator.stats assignment
+- Log now uses `_sessionStartTime` directly
+
+**speaking_time all zeros fix:**
+- Root cause: computeSpeakingTime only counts isFinal entries; partial-only = 0
+- Fix: Fallback to engine diagnosticInfo.segmentCount when no isFinal entries
+- Estimate: each segment ≈ 20 chars (zh) or 30 chars (en)
+- Now: remote 33 segments → ~3.7 min estimated speaking
+
+### Overall Status Logic
 - ✅ ALL OK: no issues
 - ⚠️ WARNINGS: bluetooth detected, high restart count
 - ❌ ISSUES: TCC denied, no speech received, Claude API failed
 
-Speaking time estimation: zh ~3 chars/sec, en ~2.5 chars/sec
+### Speaking Time Estimation
+- zh: ~3 chars/sec → chars / 3 / 60 = minutes
+- en: ~2.5 chars/sec → chars / 2.5 / 60 = minutes
+- Fallback: segments × avgCharsPerSegment (20 zh / 30 en)
 
 ## Microphone Compatibility
 
