@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3.1 — + App Selection + Audio Health + Full Post-Meeting Log
+// MeetingCopilot v4.3.1 — Fixed: start_time bug + speaking time fallback
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -35,6 +35,8 @@ final class MeetingAICoordinator {
     private var meetingTitle: String = "Meeting"
     private var meetingLanguage: String = "zh-TW"
     private var claudeAPIConnected: Bool = false
+    // ★ Bug fix: 保存 sessionStartTime 避免被覆寫
+    private var _sessionStartTime: Date?
 
     private let pipeline: TranscriptPipeline
     private let orchestrator: ResponseOrchestrator
@@ -88,14 +90,16 @@ final class MeetingAICoordinator {
         self.detectedAppName = audioHealth.detectedAppName ?? ""
         await orchestrator.checkNotebookLMAvailability()
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
-        // ★ 檢查 Claude API 連接狀態
         if stats.claudeQueries > 0 || stats.strategyAnalyses > 0 { claudeAPIConnected = true }
         await tpTracker.markMeetingStarted()
         let record = MeetingSessionRecord(startTime: Date(), engineType: activeEngineType?.rawValue ?? "unknown", hasDualStream: hasDualStream)
         modelContext.insert(record); currentSessionRecord = record; try? modelContext.save()
         startPipelineConsumer(); startEventConsumer(); startPeriodicStrategy()
         startTPUpdateLoop(); startAudioHealthLoop()
-        stats.sessionStartTime = Date()
+        // ★ Bug fix: 同時保存到專屬變數，避免被 orchestrator.stats 覆寫
+        let now = Date()
+        stats.sessionStartTime = now
+        _sessionStartTime = now
     }
 
     func stopMeeting() async {
@@ -110,10 +114,13 @@ final class MeetingAICoordinator {
         await pipeline.stop(); await orchestrator.markSessionEnd()
         captureState = .idle; activeEngineType = nil
         isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
-        stats = await orchestrator.stats; stats.sessionEndTime = Date()
-        self.tpStats = await tpTracker.getStats()
         
-        // ★ 更新 Claude API 連接狀態
+        // ★ Bug fix: 先從 orchestrator 取 stats，然後還原 sessionStartTime
+        stats = await orchestrator.stats
+        stats.sessionStartTime = _sessionStartTime  // ★ 還原被覆寫的 startTime
+        stats.sessionEndTime = Date()
+        
+        self.tpStats = await tpTracker.getStats()
         if stats.claudeQueries > 0 || stats.strategyAnalyses > 0 { claudeAPIConnected = true }
 
         self.audioHealth = AudioHealthStatus(
@@ -123,10 +130,9 @@ final class MeetingAICoordinator {
         if let record = currentSessionRecord { record.updateFromStats(stats, tpStats: tpStats); try? modelContext.save() }
         currentSessionRecord = nil
 
-        // ★ 計算發言時間
-        let speakingTime = computeSpeakingTime(entries: finalEntries)
+        // ★ 計算發言時間（優先用 entries，fallback 用 engine segments）
+        let speakingTime = computeSpeakingTime(entries: finalEntries, remoteDiag: diag.remote, localDiag: diag.local)
         
-        // ★ 建立連接狀態
         let connections = ConnectionStatus(
             claudeAPI: claudeAPIConnected ? (stats.claudeQueries > 0 ? .connected : .notUsed) :
                        (KeychainManager.hasClaudeAPIKey ? .failed : .notConfigured),
@@ -138,7 +144,7 @@ final class MeetingAICoordinator {
         // ★ 儲存會議後診斷 Log
         let log = MeetingSessionLog(
             meetingTitle: meetingTitle,
-            startTime: stats.sessionStartTime,
+            startTime: _sessionStartTime,  // ★ 用保存的時間
             endTime: Date(),
             language: meetingLanguage,
             hasDualStream: finalAudioHealth.remoteActive && finalAudioHealth.localActive,
@@ -157,21 +163,37 @@ final class MeetingAICoordinator {
         )
         PostMeetingLogger.saveLog(log)
         detectedAppName = ""
+        _sessionStartTime = nil
     }
     
-    // ★ 計算發言時間（用字數估算：中文 ~3字/秒，英文 ~2.5字/秒）
-    private func computeSpeakingTime(entries: [TranscriptEntry]) -> SpeakingTimeInfo {
+    // ★ 計算發言時間（用字數估算 + fallback 用 engine segment 數量）
+    private func computeSpeakingTime(entries: [TranscriptEntry], remoteDiag: EngineDiagnosticInfo, localDiag: EngineDiagnosticInfo) -> SpeakingTimeInfo {
         let remoteEntries = entries.filter { $0.speaker == .remote && $0.isFinal }
         let localEntries = entries.filter { $0.speaker == .local && $0.isFinal }
-        let remoteChars = remoteEntries.reduce(0) { $0 + $1.text.count }
-        let localChars = localEntries.reduce(0) { $0 + $1.text.count }
-        // 中文約 3 字/秒，英文約 2.5 字/秒（粗略估算）
+        var remoteChars = remoteEntries.reduce(0) { $0 + $1.text.count }
+        var localChars = localEntries.reduce(0) { $0 + $1.text.count }
+        var remoteFinal = remoteEntries.count
+        var localFinal = localEntries.count
+        
+        // ★ Fallback: 如果 entries 沒有 isFinal 但 engine 有 segments，用 engine 的 segment 數來估算
+        // 平均每個 segment 約 20 字（中文）或 30 字（英文）
+        if remoteFinal == 0 && remoteDiag.segmentCount > 0 {
+            let avgCharsPerSegment = meetingLanguage.hasPrefix("zh") ? 20 : 30
+            remoteChars = remoteDiag.segmentCount * avgCharsPerSegment
+            remoteFinal = remoteDiag.segmentCount
+        }
+        if localFinal == 0 && localDiag.segmentCount > 0 {
+            let avgCharsPerSegment = meetingLanguage.hasPrefix("zh") ? 20 : 30
+            localChars = localDiag.segmentCount * avgCharsPerSegment
+            localFinal = localDiag.segmentCount
+        }
+        
         let charsPerSecond: Double = meetingLanguage.hasPrefix("zh") ? 3.0 : 2.5
         let remoteMinutes = Double(remoteChars) / charsPerSecond / 60.0
         let localMinutes = Double(localChars) / charsPerSecond / 60.0
         return SpeakingTimeInfo(
-            remoteFinalSegments: remoteEntries.count,
-            localFinalSegments: localEntries.count,
+            remoteFinalSegments: remoteFinal,
+            localFinalSegments: localFinal,
             remoteCharCount: remoteChars,
             localCharCount: localChars,
             remoteEstimatedMinutes: remoteMinutes,
@@ -221,7 +243,7 @@ final class MeetingAICoordinator {
                 switch event.type {
                 case .cardInserted(let card):
                     self.cards = await self.orchestrator.cards; self.stats = await self.orchestrator.stats
-                    self.claudeAPIConnected = true  // ★ Claude 有回應 = 連接成功
+                    self.claudeAPIConnected = true
                     if let record = self.currentSessionRecord {
                         let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue, title: card.title, content: card.content, confidence: Double(card.confidence), latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
                         cr.session = record; record.cards.append(cr)
