@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3.1 — + App Selection + Audio Health
+// MeetingCopilot v4.3.1 — + App Selection + Audio Health + Post-Meeting Log
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -11,7 +11,6 @@ import SwiftData
 @MainActor
 final class MeetingAICoordinator {
 
-    // MARK: UI 狀態
     private(set) var cards: [AICard] = []
     private(set) var fullTranscript: String = ""
     private(set) var recentTranscript: String = ""
@@ -25,22 +24,17 @@ final class MeetingAICoordinator {
     private(set) var isClaudeStreaming: Bool = false
     private(set) var hasDualStream: Bool = false
     private(set) var stats = SessionStats()
-
-    // ★ Audio Health
     private(set) var audioHealth = AudioHealthStatus(
-        remoteActive: false, localActive: false,
-        remoteLastReceived: nil, localLastReceived: nil,
-        remoteSegmentCount: 0, localSegmentCount: 0,
-        startupMessage: nil, detectedAppName: nil
+        remoteActive: false, localActive: false, remoteLastReceived: nil, localLastReceived: nil,
+        remoteSegmentCount: 0, localSegmentCount: 0, startupMessage: nil, detectedAppName: nil
     )
-
-    // ★ App Selection
     var detectedApps: [DetectedAppInfo] = []
     var showAppPicker: Bool = false
     var isScanning: Bool = false
     private(set) var detectedAppName: String = ""
+    private var meetingTitle: String = "Meeting"
+    private var meetingLanguage: String = "zh-TW"
 
-    // MARK: 子系統
     private let pipeline: TranscriptPipeline
     private let orchestrator: ResponseOrchestrator
     private let tpTracker = TalkingPointsTracker()
@@ -49,7 +43,6 @@ final class MeetingAICoordinator {
     private var strategyTask: Task<Void, Never>?
     private var tpUpdateTask: Task<Void, Never>?
     private var audioHealthTask: Task<Void, Never>?
-
     private var currentSessionRecord: MeetingSessionRecord?
     private let modelContext: ModelContext
     private var pendingConfig: AudioCaptureConfiguration?
@@ -62,50 +55,26 @@ final class MeetingAICoordinator {
         self.modelContext = ModelContext(MeetingDataStore.container)
     }
 
-    func loadKnowledgeBase(_ items: [QAItem]) async {
-        await orchestrator.loadKnowledgeBase(items); stats.qaItemsLoaded = items.count
-    }
+    func loadKnowledgeBase(_ items: [QAItem]) async { await orchestrator.loadKnowledgeBase(items); stats.qaItemsLoaded = items.count }
     func loadTalkingPoints(_ points: [TalkingPoint], meetingDurationMinutes: Int = 60) async {
-        await tpTracker.loadTalkingPoints(points, meetingDurationMinutes: meetingDurationMinutes)
-        await syncTPState()
+        await tpTracker.loadTalkingPoints(points, meetingDurationMinutes: meetingDurationMinutes); await syncTPState()
     }
     func updateContext(_ context: MeetingContext) async { await orchestrator.updateContext(context) }
+    func setMeetingInfo(title: String, language: String) { meetingTitle = title; meetingLanguage = language }
 
-    // MARK: - ★ Step 1: 掃描 App（用戶按下開始會議後的第一步）
-    
-    /// 掃描支援的 App，決定是否顯示選擇器
-    /// - 0 個 App → 顯示錯誤
-    /// - 1 個 App → 自動啟動
-    /// - 2+ 個 App → 顯示 App Picker
     func scanAndPrepare(config: AudioCaptureConfiguration = .default) async {
-        isScanning = true
-        pendingConfig = config
-        
+        isScanning = true; pendingConfig = config
         let apps = await AppScanner.scanActiveApps()
         isScanning = false
-        
-        if apps.isEmpty {
-            captureState = .error(.noAudioSourceFound)
-        } else if apps.count == 1 {
-            // 單一 App → 直接啟動
-            await startMeeting(config: config.withTarget(apps[0].app))
-        } else {
-            // 多個 App → 顯示選擇器
-            detectedApps = apps
-            showAppPicker = true
-        }
+        if apps.isEmpty { captureState = .error(.noAudioSourceFound) }
+        else if apps.count == 1 { await startMeeting(config: config.withTarget(apps[0].app)) }
+        else { detectedApps = apps; showAppPicker = true }
     }
-    
-    // MARK: - ★ Step 2: 用戶選擇 App 後啟動
-    
     func startMeetingWithApp(_ app: MeetingApp) async {
-        showAppPicker = false
-        let config = pendingConfig ?? .default
+        showAppPicker = false; let config = pendingConfig ?? .default
         await startMeeting(config: config.withTarget(app))
     }
 
-    // MARK: - Start Meeting
-    
     func startMeeting(config: AudioCaptureConfiguration = .default) async {
         do {
             try await pipeline.start(config: config)
@@ -113,23 +82,13 @@ final class MeetingAICoordinator {
             self.activeEngineType = await pipeline.activeEngineType
             self.hasDualStream = await pipeline.hasDualStream
         } catch { self.captureState = .error(.engineStartFailed("引擎啟動失敗")); return }
-
-        // ★ 立即同步音訊健康狀態（含啟動訊息 + App 名稱）
         self.audioHealth = await pipeline.audioHealth
         self.detectedAppName = audioHealth.detectedAppName ?? ""
-
         await orchestrator.checkNotebookLMAvailability()
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
         await tpTracker.markMeetingStarted()
-
-        let record = MeetingSessionRecord(
-            startTime: Date(), engineType: activeEngineType?.rawValue ?? "unknown",
-            hasDualStream: hasDualStream
-        )
-        modelContext.insert(record)
-        currentSessionRecord = record
-        try? modelContext.save()
-
+        let record = MeetingSessionRecord(startTime: Date(), engineType: activeEngineType?.rawValue ?? "unknown", hasDualStream: hasDualStream)
+        modelContext.insert(record); currentSessionRecord = record; try? modelContext.save()
         startPipelineConsumer(); startEventConsumer(); startPeriodicStrategy()
         startTPUpdateLoop(); startAudioHealthLoop()
         stats.sessionStartTime = Date()
@@ -138,24 +97,41 @@ final class MeetingAICoordinator {
     func stopMeeting() async {
         pipelineConsumerTask?.cancel(); eventConsumerTask?.cancel()
         strategyTask?.cancel(); tpUpdateTask?.cancel(); audioHealthTask?.cancel()
+
+        // ★ 收集診斷資訊（在 stop 之前）
+        let diag = await pipeline.getEngineDiagnostics()
+        let finalAudioHealth = await pipeline.audioHealth
+
         await pipeline.stop(); await orchestrator.markSessionEnd()
         captureState = .idle; activeEngineType = nil
         isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
-        detectedAppName = ""
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
         self.audioHealth = AudioHealthStatus(
-            remoteActive: false, localActive: false,
-            remoteLastReceived: nil, localLastReceived: nil,
-            remoteSegmentCount: 0, localSegmentCount: 0,
-            startupMessage: nil, detectedAppName: nil
+            remoteActive: false, localActive: false, remoteLastReceived: nil, localLastReceived: nil,
+            remoteSegmentCount: 0, localSegmentCount: 0, startupMessage: nil, detectedAppName: nil
         )
-
-        if let record = currentSessionRecord {
-            record.updateFromStats(stats, tpStats: tpStats)
-            try? modelContext.save()
-        }
+        if let record = currentSessionRecord { record.updateFromStats(stats, tpStats: tpStats); try? modelContext.save() }
         currentSessionRecord = nil
+
+        // ★ 儲存會議後診斷 Log
+        let log = MeetingSessionLog(
+            meetingTitle: meetingTitle,
+            startTime: stats.sessionStartTime,
+            endTime: Date(),
+            language: meetingLanguage,
+            hasDualStream: finalAudioHealth.remoteActive && finalAudioHealth.localActive,
+            remoteDiag: diag.remote,
+            localDiag: diag.local,
+            stats: stats,
+            tpStats: tpStats,
+            screenRecordingPermission: diag.screenRecordingOK,
+            micDevice: diag.micDevice,
+            bluetoothDetected: diag.bluetoothDetected,
+            errorLog: diag.errors
+        )
+        PostMeetingLogger.saveLog(log)
+        detectedAppName = ""
     }
 
     func manualQuery(_ question: String) async {
@@ -166,31 +142,23 @@ final class MeetingAICoordinator {
     func markTPCompleted(_ id: UUID) async { await tpTracker.markCompleted(id); await syncTPState() }
     func markTPSkipped(_ id: UUID) async { await tpTracker.markSkipped(id); await syncTPState() }
 
-    // MARK: 雙串流管線消費
     private func startPipelineConsumer() {
         pipelineConsumerTask = Task { [weak self] in
             guard let self else { return }
             let updates = await self.pipeline.updates!
             for await update in updates {
                 guard !Task.isCancelled else { break }
-                self.fullTranscript = update.fullText
-                self.recentTranscript = update.recentText
+                self.fullTranscript = update.fullText; self.recentTranscript = update.recentText
                 self.transcriptEntries = await self.pipeline.transcriptEntries
-
                 if let record = self.currentSessionRecord, update.segment.text.count > 10 {
-                    let tr = TranscriptRecord(timestamp: update.segment.timestamp,
-                        text: update.segment.text, speaker: update.speaker.rawValue,
-                        isFinal: update.segment.isFinal, confidence: update.segment.confidence)
-                    tr.session = record
-                    record.transcripts.append(tr)
+                    let tr = TranscriptRecord(timestamp: update.segment.timestamp, text: update.segment.text, speaker: update.speaker.rawValue, isFinal: update.segment.isFinal, confidence: update.segment.confidence)
+                    tr.session = record; record.transcripts.append(tr)
                 }
-
                 switch update.speaker {
                 case .remote:
-                    let tpStats = await self.tpTracker.getStats()
-                    let unfinished = await self.tpTracker.getAllTalkingPoints()
-                        .filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
-                    await self.orchestrator.processUpdate(update, tpStats: tpStats, unfinishedMust: unfinished)
+                    let tp = await self.tpTracker.getStats()
+                    let um = await self.tpTracker.getAllTalkingPoints().filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
+                    await self.orchestrator.processUpdate(update, tpStats: tp, unfinishedMust: um)
                 case .local:
                     let reminders = await self.tpTracker.analyzeTranscript(update.segment.text)
                     await self.syncTPState()
@@ -199,7 +167,6 @@ final class MeetingAICoordinator {
             }
         }
     }
-
     private func startEventConsumer() {
         eventConsumerTask = Task { [weak self] in
             guard let self else { return }
@@ -208,13 +175,9 @@ final class MeetingAICoordinator {
                 guard !Task.isCancelled else { break }
                 switch event.type {
                 case .cardInserted(let card):
-                    self.cards = await self.orchestrator.cards
-                    self.stats = await self.orchestrator.stats
+                    self.cards = await self.orchestrator.cards; self.stats = await self.orchestrator.stats
                     if let record = self.currentSessionRecord {
-                        let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue,
-                            title: card.title, content: card.content,
-                            confidence: Double(card.confidence),
-                            latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
+                        let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue, title: card.title, content: card.content, confidence: Double(card.confidence), latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
                         cr.session = record; record.cards.append(cr)
                     }
                 case .claudeStreamingStarted: self.isClaudeStreaming = true
@@ -226,58 +189,37 @@ final class MeetingAICoordinator {
             }
         }
     }
-
     private func startPeriodicStrategy() {
         strategyTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000_000)
             while !Task.isCancelled {
                 guard let self else { break }
-                let t = await self.pipeline.fullTranscript
-                let tp = await self.tpTracker.getStats()
-                let um = await self.tpTracker.getAllTalkingPoints()
-                    .filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
+                let t = await self.pipeline.fullTranscript; let tp = await self.tpTracker.getStats()
+                let um = await self.tpTracker.getAllTalkingPoints().filter { $0.status == .pending && $0.priority == .must }.map { $0.content }
                 await self.orchestrator.runStrategyAnalysis(recentTranscript: t, tpStats: tp, unfinishedMust: um)
                 try? await Task.sleep(nanoseconds: 180_000_000_000)
             }
         }
     }
-
     private func startTPUpdateLoop() {
         tpUpdateTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                guard let self else { break }; await self.syncTPState()
-            }
+            while !Task.isCancelled { try? await Task.sleep(nanoseconds: 5_000_000_000); guard let self else { break }; await self.syncTPState() }
         }
     }
-
-    // ★ Audio Health 輪詢（每 3 秒）
     private func startAudioHealthLoop() {
         audioHealthTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard let self else { break }
-                self.audioHealth = await self.pipeline.audioHealth
-            }
+            while !Task.isCancelled { try? await Task.sleep(nanoseconds: 3_000_000_000); guard let self else { break }; self.audioHealth = await self.pipeline.audioHealth }
         }
     }
-
-    private func syncTPState() async {
-        self.talkingPoints = await tpTracker.getAllTalkingPoints()
-        self.tpStats = await tpTracker.getStats()
-    }
+    private func syncTPState() async { self.talkingPoints = await tpTracker.getAllTalkingPoints(); self.tpStats = await tpTracker.getStats() }
 }
-
-// MARK: - Session Stats
 
 struct SessionStats {
     var sessionStartTime: Date?; var sessionEndTime: Date?
     var qaItemsLoaded: Int = 0; var localMatches: Int = 0; var notebookLMQueries: Int = 0
     var claudeQueries: Int = 0; var strategyAnalyses: Int = 0; var totalCards: Int = 0
     var totalClaudeLatencyMs: Double = 0
-    var sessionDuration: TimeInterval? {
-        guard let s = sessionStartTime else { return nil }; return (sessionEndTime ?? Date()).timeIntervalSince(s)
-    }
+    var sessionDuration: TimeInterval? { guard let s = sessionStartTime else { return nil }; return (sessionEndTime ?? Date()).timeIntervalSince(s) }
     var averageClaudeLatencyMs: Double { claudeQueries > 0 ? totalClaudeLatencyMs / Double(claudeQueries) : 0 }
     var estimatedClaudeCost: Double { Double(claudeQueries + strategyAnalyses) * 0.022 }
     var summary: String {
