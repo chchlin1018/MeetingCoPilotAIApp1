@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingPrepView.swift
-// MeetingCopilot v4.3 — 會前準備 UI + MeetingTEXT 預設資料夾 + 資料來源連接
+// MeetingCopilot v4.3.1 — 會前準備 UI + App Selection + MeetingTEXT
 // ═══════════════════════════════════════════════════════════════════════════
 
 import SwiftUI
@@ -13,7 +13,7 @@ struct EditableQAItem: Identifiable {
     var question: String = ""
     var keywords: String = ""
     var answer: String = ""
-    var qaType: QAType = .theirQuestion   // ★ 分類
+    var qaType: QAType = .theirQuestion
 
     enum QAType: String, CaseIterable {
         case myQuestion = "我方提問"
@@ -37,8 +37,9 @@ struct MeetingPrepResult {
     let talkingPoints: [TalkingPoint]
     let durationMinutes: Int
     let speechLocale: Locale
-    let notionPageId: String       // ★ 每場會議的 Notion page
-    let notebookLMNotebookId: String  // ★ 每場會議的 NotebookLM notebook
+    let notionPageId: String
+    let notebookLMNotebookId: String
+    let selectedApp: MeetingApp?    // ★ 使用者選擇的音訊來源 App（nil = 自動偵測）
 }
 
 // MARK: - 語言選項
@@ -72,23 +73,26 @@ struct MeetingPrepView: View {
     @State private var talkingPoints: [EditableTalkingPoint] = []
     @State private var statusMessage: String = ""
 
-    // ★ 資料來源連接
+    // 資料來源連接
     @State private var notionPageId: String = ""
     @State private var notionPageUrl: String = ""
     @State private var notebookLMNotebookId: String = ""
     @State private var notebookLMBridgeUrl: String = "http://localhost:3210"
 
-    // ★ 系統檢查 Sheet
+    // 系統檢查 Sheet
     @State private var showSystemCheck = false
+
+    // ★ App Selection
+    @State private var showAppPicker = false
+    @State private var detectedApps: [DetectedAppInfo] = []
+    @State private var isScanning = false
 
     private let meetingTypes = [
         "Sales Proposal", "Board Meeting", "Client Presentation",
         "Interview", "Review Meeting", "1-on-1", "Team Standup", "Other"
     ]
 
-    // ★ 預設 MeetingTEXT 資料夾路徑
     private var meetingTEXTFolderURL: URL? {
-        // 嘗試找到專案目錄下的 MeetingTEXT
         if let bundlePath = Bundle.main.resourceURL?.deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent() {
@@ -97,7 +101,6 @@ struct MeetingPrepView: View {
                 return meetingTextURL
             }
         }
-        // Fallback: 從使用者的 Documents/MyProjects 搜尋
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
             home.appendingPathComponent("Documents/MyProjects/MeetingCopilotApp1/MeetingTEXT"),
@@ -114,7 +117,7 @@ struct MeetingPrepView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     meetingInfoSection
                     Divider().background(Color.gray.opacity(0.3))
-                    sourcesSection          // ★ 資料來源連接
+                    sourcesSection
                     Divider().background(Color.gray.opacity(0.3))
                     qaSection
                     Divider().background(Color.gray.opacity(0.3))
@@ -128,10 +131,107 @@ struct MeetingPrepView: View {
         }
         .background(Color(hex: "0A0A0F"))
         .preferredColorScheme(.dark)
-        // ★ 系統檢查 Sheet
         .sheet(isPresented: $showSystemCheck) {
             SystemCheckView()
                 .frame(width: 660, height: 560)
+        }
+        // ★ App 選擇面板
+        .sheet(isPresented: $showAppPicker) {
+            appPickerSheet
+        }
+    }
+
+    // MARK: - ★ App Picker Sheet
+
+    private var appPickerSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "app.connected.to.app.below.fill")
+                    .font(.title2).foregroundColor(.cyan)
+                Text("選擇音訊來源")
+                    .font(.system(size: 18, weight: .bold)).foregroundColor(.white)
+                Spacer()
+                Button("取消") { showAppPicker = false }
+                    .keyboardShortcut(.escape)
+            }.padding()
+
+            Divider()
+
+            Text("偵測到 \(detectedApps.count) 個應用程式，請選擇要擷取音訊的來源：")
+                .font(.system(size: 13)).foregroundColor(.gray)
+                .padding(.horizontal).padding(.top, 12)
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(detectedApps) { info in
+                        Button {
+                            showAppPicker = false
+                            finishStartMeeting(selectedApp: info.app)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: appIcon(for: info.app))
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.cyan)
+                                    .frame(width: 32)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(info.displayName)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Text("\(info.tierLabel) • \(info.app.bundleIdentifier)")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.gray)
+                                }
+
+                                Spacer()
+
+                                if info.priority == 0 {
+                                    Text("推薦")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Color.green).cornerRadius(4)
+                                }
+
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(Color.white.opacity(0.05))
+                            .cornerRadius(10)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }.padding()
+            }
+
+            Divider()
+
+            HStack {
+                Image(systemName: "info.circle").foregroundColor(.gray)
+                Text("選擇後將開始擷取該 App 的音訊 + 麥克風（On-Device）")
+                    .font(.system(size: 12)).foregroundColor(.gray)
+                Spacer()
+            }.padding()
+        }
+        .frame(width: 450, height: 380)
+        .background(Color(hex: "111118"))
+        .preferredColorScheme(.dark)
+    }
+
+    private func appIcon(for app: MeetingApp) -> String {
+        switch app {
+        case .zoom: return "video.fill"
+        case .microsoftTeams: return "person.3.fill"
+        case .googleMeet: return "globe"
+        case .webex: return "video.badge.checkmark"
+        case .slack: return "number"
+        case .discord: return "gamecontroller.fill"
+        case .line: return "message.fill"
+        case .whatsapp, .whatsappNative: return "phone.fill"
+        case .telegram: return "paperplane.fill"
+        case .facetime: return "video.circle.fill"
         }
     }
 
@@ -148,7 +248,6 @@ struct MeetingPrepView: View {
                 Text(statusMessage).font(.system(size: 11)).foregroundColor(.green).transition(.opacity)
             }
 
-            // ★ 系統檢查按鈕
             Button(action: { showSystemCheck = true }) {
                 HStack(spacing: 4) { Image(systemName: "stethoscope"); Text("系統檢查") }
             }
@@ -224,23 +323,19 @@ struct MeetingPrepView: View {
         }
     }
 
-    // MARK: ★ Sources Section（資料來源連接）
+    // MARK: Sources Section
 
     private var sourcesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("資料來源連接")
             Text("每場會議連接獨立的 Notion page 和 NotebookLM notebook")
                 .font(.system(size: 10)).foregroundColor(.gray.opacity(0.5))
-
-            // Notion
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
                         Text("📝").font(.system(size: 12))
                         Text("Notion Page").font(.system(size: 11, weight: .medium)).foregroundColor(.teal)
-                        if !notionPageId.isEmpty {
-                            Text("✅").font(.system(size: 9))
-                        }
+                        if !notionPageId.isEmpty { Text("✅").font(.system(size: 9)) }
                     }
                     TextField("Page ID 或 URL", text: $notionPageId)
                         .textFieldStyle(.roundedBorder).font(.system(size: 11))
@@ -249,9 +344,7 @@ struct MeetingPrepView: View {
                     HStack(spacing: 4) {
                         Text("📄").font(.system(size: 12))
                         Text("NotebookLM").font(.system(size: 11, weight: .medium)).foregroundColor(.purple)
-                        if !notebookLMNotebookId.isEmpty {
-                            Text("✅").font(.system(size: 9))
-                        }
+                        if !notebookLMNotebookId.isEmpty { Text("✅").font(.system(size: 9)) }
                     }
                     TextField("Notebook ID", text: $notebookLMNotebookId)
                         .textFieldStyle(.roundedBorder).font(.system(size: 11))
@@ -264,7 +357,7 @@ struct MeetingPrepView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.15), lineWidth: 1))
     }
 
-    // MARK: Q&A Section（分我方/對方）
+    // MARK: Q&A Section
 
     private var qaSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -284,7 +377,6 @@ struct MeetingPrepView: View {
             }
             ForEach($qaItems) { $item in
                 HStack(alignment: .top, spacing: 8) {
-                    // ★ 類型選擇
                     Picker("", selection: $item.qaType) {
                         Text("我方").tag(EditableQAItem.QAType.myQuestion)
                         Text("對方").tag(EditableQAItem.QAType.theirQuestion)
@@ -381,13 +473,21 @@ struct MeetingPrepView: View {
             Spacer()
             Button("清除全部") { clearAll() }
                 .buttonStyle(.plain).font(.system(size: 12)).foregroundColor(.gray)
-            Button(action: startMeeting) {
-                HStack(spacing: 6) { Image(systemName: "play.fill"); Text("開始會議") }
+            // ★ 開始會議按鈕 → 先掃描 App
+            Button(action: scanAndStart) {
+                HStack(spacing: 6) {
+                    if isScanning {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "play.fill")
+                    }
+                    Text(isScanning ? "掃描中..." : "開始會議")
+                }
                 .font(.system(size: 13, weight: .semibold))
                 .padding(.horizontal, 20).padding(.vertical, 8)
                 .background(Color.green.opacity(0.8)).cornerRadius(8)
             }
-            .buttonStyle(.plain).disabled(!isValid)
+            .buttonStyle(.plain).disabled(!isValid || isScanning)
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
         .background(Color(hex: "111118"))
@@ -405,9 +505,32 @@ struct MeetingPrepView: View {
         switch p { case .must: return Color.red.opacity(0.06); case .should: return Color.yellow.opacity(0.05); case .nice: return Color.gray.opacity(0.05) }
     }
 
-    // MARK: - Build Result
+    // MARK: - ★ Scan Apps → Start Meeting
 
-    private func startMeeting() {
+    private func scanAndStart() {
+        isScanning = true
+        Task {
+            let apps = await AppScanner.scanActiveApps()
+            await MainActor.run {
+                isScanning = false
+                if apps.isEmpty {
+                    // 0 個 App → 直接開始（Pipeline 會自動偵測或報錯）
+                    finishStartMeeting(selectedApp: nil)
+                } else if apps.count == 1 {
+                    // 1 個 App → 自動選擇
+                    finishStartMeeting(selectedApp: apps[0].app)
+                } else {
+                    // 2+ 個 App → 顯示選擇面板
+                    detectedApps = apps
+                    showAppPicker = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Build Result & Start
+
+    private func finishStartMeeting(selectedApp: MeetingApp?) {
         let goals = goalsText.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
         let context = MeetingContext(goals: goals, preAnalysisCache: preAnalysis,
             relevantQA: [], recentTranscript: "", attendeeInfo: attendeeInfo, meetingType: meetingType)
@@ -427,17 +550,17 @@ struct MeetingPrepView: View {
             durationMinutes: durationMinutes,
             speechLocale: Locale(identifier: speechLanguage),
             notionPageId: notionPageId,
-            notebookLMNotebookId: notebookLMNotebookId
+            notebookLMNotebookId: notebookLMNotebookId,
+            selectedApp: selectedApp
         ))
     }
 
-    // MARK: - ★ 儲存 TXT（預設 MeetingTEXT 資料夾）
+    // MARK: - 儲存 TXT
 
     private func saveToFile() {
         let content = buildTXTContent()
         let panel = NSSavePanel()
         panel.title = "儲存會前準備"
-        // ★ 預設到 MeetingTEXT 資料夾
         if let folder = meetingTEXTFolderURL { panel.directoryURL = folder }
         let dateStr = formatDate(Date())
         let safeName = sanitizeFilename(meetingTitle.isEmpty ? "meeting-prep" : meetingTitle)
@@ -464,7 +587,6 @@ struct MeetingPrepView: View {
         lines.append("duration=\(durationMinutes)")
         lines.append("language=\(speechLanguage)")
         lines.append("")
-        // ★ 資料來源
         lines.append("[SOURCES]")
         lines.append("notion_page_id=\(notionPageId)")
         lines.append("notion_page_url=\(notionPageUrl)")
@@ -477,7 +599,6 @@ struct MeetingPrepView: View {
         lines.append("[ATTENDEES]")
         for line in attendeeInfo.split(separator: "\n") where !line.isEmpty { lines.append(String(line)) }
         lines.append("")
-        // ★ 分兩類 Q&A
         lines.append("[QA_MY_QUESTIONS]")
         lines.append("# 我方可能想問的問題（主動提問）")
         lines.append("# 格式: Q: 問題 / K: 關鍵字 / A: 預期答案/目的")
@@ -513,12 +634,11 @@ struct MeetingPrepView: View {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: date)
     }
 
-    // MARK: - ★ 讀取 TXT（預設 MeetingTEXT 資料夾）
+    // MARK: - 讀取 TXT
 
     private func loadFromFile() {
         let panel = NSOpenPanel()
         panel.title = "讀取會前準備"
-        // ★ 預設到 MeetingTEXT 資料夾
         if let folder = meetingTEXTFolderURL { panel.directoryURL = folder }
         panel.allowedContentTypes = [.plainText]
         panel.allowsMultipleSelection = false
@@ -546,7 +666,6 @@ struct MeetingPrepView: View {
             let line = String(rawLine)
             if line.hasPrefix("#") { continue }
             if line.hasPrefix("[") && line.hasSuffix("]") {
-                // 儲存上一個 QA
                 if !currentQA.q.isEmpty {
                     qaItems.append(EditableQAItem(question: currentQA.q, keywords: currentQA.k,
                                                   answer: currentQA.a, qaType: currentQAType))
@@ -571,10 +690,8 @@ struct MeetingPrepView: View {
             case "[ATTENDEES]":
                 if !line.trimmingCharacters(in: .whitespaces).isEmpty { attendeeLines.append(line) }
             case "[QA]", "[QA_MY_QUESTIONS]", "[QA_THEIR_QUESTIONS]":
-                // 判斷 QA 類型
                 if currentSection == "[QA_MY_QUESTIONS]" { currentQAType = .myQuestion }
                 else { currentQAType = .theirQuestion }
-
                 if line.hasPrefix("Q: ") || line.hasPrefix("Q:") {
                     if !currentQA.q.isEmpty {
                         qaItems.append(EditableQAItem(question: currentQA.q, keywords: currentQA.k,
