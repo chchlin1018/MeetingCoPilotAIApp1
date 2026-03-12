@@ -1,6 +1,6 @@
 // MicrophoneCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Fallback: Microphone Capture Engine
-// Fixed: restart loop + speech error handling
+// Fixed: Use ON-DEVICE recognition to avoid conflict with remote (server) recognition
 
 import Foundation
 import AVFoundation
@@ -17,7 +17,6 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     }
     
     nonisolated(unsafe) private var _state: AudioCaptureState = .idle
-    
     nonisolated var state: AudioCaptureState { _state }
     
     private var streamContinuation: AsyncStream<TranscriptSegment>.Continuation?
@@ -29,6 +28,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private var bufferCount: Int = 0
     private var restartCount: Int = 0
     private var hasEverReceivedSpeech: Bool = false
+    private var useOnDevice: Bool = false
     
     init(configuration: AudioCaptureConfiguration = .default) {
         self.config = configuration
@@ -50,13 +50,25 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
             throw AudioCaptureError.speechRecognizerUnavailable
         }
         
+        // ★ 檢查是否支援 On-Device 辨識
+        useOnDevice = recognizer.supportsOnDeviceRecognition
+        print("🎙️ Mic: on-device recognition = \(useOnDevice ? "✅ YES" : "❌ NO (will use server)")")
+        
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let request = recognitionRequest else {
             throw AudioCaptureError.engineStartFailed("Cannot create Request")
         }
         request.shouldReportPartialResults = config.enablePartialResults
-        // ★ 允許更長的靜音等待時間
-        request.requiresOnDeviceRecognition = false
+        
+        // ★ 關鍵修復：麥克風用 On-Device 離線辨識
+        // 遠端用 Server 線上辨識，兩個不同的辨識管道可以共存
+        // 解決 macOS 同時只能有一個活躍 SFSpeechRecognitionTask 的限制
+        if useOnDevice {
+            request.requiresOnDeviceRecognition = true
+            print("🎙️ Mic: using ON-DEVICE recognition (避免與遠端 server 辨識衝突)")
+        } else {
+            print("⚠️ Mic: on-device not available, using server (may conflict with remote)")
+        }
         
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -75,7 +87,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         startSpeechRecognition(recognizer: recognizer, request: request)
         
         _state = .capturing
-        print("✅ Mic: audioEngine started, listening...")
+        print("✅ Mic: audioEngine started, listening... (mode: \(useOnDevice ? "on-device" : "server"))")
     }
     
     // MARK: - Speech Recognition
@@ -103,26 +115,24 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         }
     }
     
-    // MARK: - ★ Smart Error Handling
+    // MARK: - Smart Error Handling
     
     private func handleSpeechError(_ error: Error) async {
         let nsError = error as NSError
         let code = nsError.code
         let description = error.localizedDescription
         
-        // ★ "No speech detected" (code 1110) — 正常現象，不是錯誤
-        // 用較長延遲重啟，避免快速循環
+        // "No speech detected" — 等 5 秒再重啟
         if description.contains("No speech detected") || code == 1110 {
             if restartCount < 3 {
                 print("💤 Mic: no speech yet (waiting 5s before restart #\(restartCount + 1))")
             }
-            // ★ 等 5 秒再重啟（而不是 0.3 秒）
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await restartSpeechOnly()
             return
         }
         
-        // ★ 60 秒 timeout (code 216) — 正常超時，快速重啟
+        // 60 秒 timeout (code 216)
         if nsError.domain == "kAFAssistantErrorDomain" && code == 216 {
             print("⏰ Mic: 60s timeout, restarting...")
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -130,7 +140,15 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
             return
         }
         
-        // ★ 其他錯誤 — 記錄後重啟
+        // [301] Recognition request was canceled — 可能被遠端干擾
+        if code == 301 {
+            print("⚠️ Mic: recognition canceled (code 301), restarting in 1s...")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            await restartSpeechOnly()
+            return
+        }
+        
+        // 其他錯誤
         print("⚠️ Mic speech error [\(code)]: \(description)")
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         await restartSpeechOnly()
@@ -148,7 +166,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         streamContinuation?.finish()
         streamContinuation = nil
         _state = .idle
-        print("⏹️ Mic: stopped (buffers: \(bufferCount), restarts: \(restartCount), gotSpeech: \(hasEverReceivedSpeech))")
+        print("⏹️ Mic: stopped (buffers: \(bufferCount), restarts: \(restartCount), gotSpeech: \(hasEverReceivedSpeech), onDevice: \(useOnDevice))")
     }
     
     // MARK: - Restart Speech Only
@@ -159,7 +177,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         recognitionTask = nil
         recognitionRequest = nil
         
-        guard _state.isActive else { return }  // 已停止則不重啟
+        guard _state.isActive else { return }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             print("❌ Mic: speech recognizer unavailable")
             return
@@ -167,6 +185,12 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         
         let newRequest = SFSpeechAudioBufferRecognitionRequest()
         newRequest.shouldReportPartialResults = config.enablePartialResults
+        
+        // ★ 重啟時也要保持 on-device 模式
+        if useOnDevice {
+            newRequest.requiresOnDeviceRecognition = true
+        }
+        
         self.recognitionRequest = newRequest
         
         let inputNode = audioEngine.inputNode
@@ -182,7 +206,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
         
         restartCount += 1
         if restartCount <= 5 || restartCount % 10 == 0 {
-            print("🔄 Mic: speech restarted (#\(restartCount))")
+            print("🔄 Mic: speech restarted (#\(restartCount), mode: \(useOnDevice ? "on-device" : "server"))")
         }
     }
     
@@ -191,7 +215,7 @@ actor MicrophoneCaptureEngine: NSObject, AudioCaptureEngine {
     private func markSpeechReceived() {
         if !hasEverReceivedSpeech {
             hasEverReceivedSpeech = true
-            print("🎉 Mic: first speech recognized!")
+            print("🎉 Mic: first speech recognized! (mode: \(useOnDevice ? "on-device" : "server"))")
         }
     }
     
