@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // MeetingAICoordinator.swift
-// MeetingCopilot v4.3.1 — + App Selection + Audio Health + Post-Meeting Log
+// MeetingCopilot v4.3.1 — + App Selection + Audio Health + Full Post-Meeting Log
 // ═══════════════════════════════════════════════════════════════════════════
 
 import Foundation
@@ -34,6 +34,7 @@ final class MeetingAICoordinator {
     private(set) var detectedAppName: String = ""
     private var meetingTitle: String = "Meeting"
     private var meetingLanguage: String = "zh-TW"
+    private var claudeAPIConnected: Bool = false
 
     private let pipeline: TranscriptPipeline
     private let orchestrator: ResponseOrchestrator
@@ -53,6 +54,7 @@ final class MeetingAICoordinator {
         self.orchestrator = ResponseOrchestrator(claudeAPIKey: claudeAPIKey, claudeModel: claudeModel,
             notebookLMConfig: notebookLMConfig, meetingContext: meetingContext)
         self.modelContext = ModelContext(MeetingDataStore.container)
+        self.claudeAPIConnected = (claudeAPIKey != "NOT_CONFIGURED" && !claudeAPIKey.isEmpty)
     }
 
     func loadKnowledgeBase(_ items: [QAItem]) async { await orchestrator.loadKnowledgeBase(items); stats.qaItemsLoaded = items.count }
@@ -86,6 +88,8 @@ final class MeetingAICoordinator {
         self.detectedAppName = audioHealth.detectedAppName ?? ""
         await orchestrator.checkNotebookLMAvailability()
         self.isNotebookLMAvailable = await orchestrator.isNotebookLMAvailable
+        // ★ 檢查 Claude API 連接狀態
+        if stats.claudeQueries > 0 || stats.strategyAnalyses > 0 { claudeAPIConnected = true }
         await tpTracker.markMeetingStarted()
         let record = MeetingSessionRecord(startTime: Date(), engineType: activeEngineType?.rawValue ?? "unknown", hasDualStream: hasDualStream)
         modelContext.insert(record); currentSessionRecord = record; try? modelContext.save()
@@ -101,18 +105,35 @@ final class MeetingAICoordinator {
         // ★ 收集診斷資訊（在 stop 之前）
         let diag = await pipeline.getEngineDiagnostics()
         let finalAudioHealth = await pipeline.audioHealth
+        let finalEntries = await pipeline.transcriptEntries
 
         await pipeline.stop(); await orchestrator.markSessionEnd()
         captureState = .idle; activeEngineType = nil
         isClaudeStreaming = false; isNotebookLMQuerying = false; hasDualStream = false
         stats = await orchestrator.stats; stats.sessionEndTime = Date()
         self.tpStats = await tpTracker.getStats()
+        
+        // ★ 更新 Claude API 連接狀態
+        if stats.claudeQueries > 0 || stats.strategyAnalyses > 0 { claudeAPIConnected = true }
+
         self.audioHealth = AudioHealthStatus(
             remoteActive: false, localActive: false, remoteLastReceived: nil, localLastReceived: nil,
             remoteSegmentCount: 0, localSegmentCount: 0, startupMessage: nil, detectedAppName: nil
         )
         if let record = currentSessionRecord { record.updateFromStats(stats, tpStats: tpStats); try? modelContext.save() }
         currentSessionRecord = nil
+
+        // ★ 計算發言時間
+        let speakingTime = computeSpeakingTime(entries: finalEntries)
+        
+        // ★ 建立連接狀態
+        let connections = ConnectionStatus(
+            claudeAPI: claudeAPIConnected ? (stats.claudeQueries > 0 ? .connected : .notUsed) :
+                       (KeychainManager.hasClaudeAPIKey ? .failed : .notConfigured),
+            notionAPI: KeychainManager.hasNotionAPIKey ? .connected : .notConfigured,
+            notebookLM: isNotebookLMAvailable ? .connected :
+                        (stats.notebookLMQueries > 0 ? .connected : .notUsed)
+        )
 
         // ★ 儲存會議後診斷 Log
         let log = MeetingSessionLog(
@@ -128,10 +149,34 @@ final class MeetingAICoordinator {
             screenRecordingPermission: diag.screenRecordingOK,
             micDevice: diag.micDevice,
             bluetoothDetected: diag.bluetoothDetected,
-            errorLog: diag.errors
+            errorLog: diag.errors,
+            audioSourceApp: detectedAppName,
+            connections: connections,
+            speakingTime: speakingTime,
+            totalTranscriptEntries: finalEntries.count
         )
         PostMeetingLogger.saveLog(log)
         detectedAppName = ""
+    }
+    
+    // ★ 計算發言時間（用字數估算：中文 ~3字/秒，英文 ~2.5字/秒）
+    private func computeSpeakingTime(entries: [TranscriptEntry]) -> SpeakingTimeInfo {
+        let remoteEntries = entries.filter { $0.speaker == .remote && $0.isFinal }
+        let localEntries = entries.filter { $0.speaker == .local && $0.isFinal }
+        let remoteChars = remoteEntries.reduce(0) { $0 + $1.text.count }
+        let localChars = localEntries.reduce(0) { $0 + $1.text.count }
+        // 中文約 3 字/秒，英文約 2.5 字/秒（粗略估算）
+        let charsPerSecond: Double = meetingLanguage.hasPrefix("zh") ? 3.0 : 2.5
+        let remoteMinutes = Double(remoteChars) / charsPerSecond / 60.0
+        let localMinutes = Double(localChars) / charsPerSecond / 60.0
+        return SpeakingTimeInfo(
+            remoteFinalSegments: remoteEntries.count,
+            localFinalSegments: localEntries.count,
+            remoteCharCount: remoteChars,
+            localCharCount: localChars,
+            remoteEstimatedMinutes: remoteMinutes,
+            localEstimatedMinutes: localMinutes
+        )
     }
 
     func manualQuery(_ question: String) async {
@@ -176,11 +221,12 @@ final class MeetingAICoordinator {
                 switch event.type {
                 case .cardInserted(let card):
                     self.cards = await self.orchestrator.cards; self.stats = await self.orchestrator.stats
+                    self.claudeAPIConnected = true  // ★ Claude 有回應 = 連接成功
                     if let record = self.currentSessionRecord {
                         let cr = CardRecord(timestamp: card.timestamp, cardType: card.type.rawValue, title: card.title, content: card.content, confidence: Double(card.confidence), latencyMs: card.latencyMs, pipelineLayer: card.type.rawValue)
                         cr.session = record; record.cards.append(cr)
                     }
-                case .claudeStreamingStarted: self.isClaudeStreaming = true
+                case .claudeStreamingStarted: self.isClaudeStreaming = true; self.claudeAPIConnected = true
                 case .claudeStreamingEnded: self.isClaudeStreaming = false
                 case .notebookLMQueryStarted: self.isNotebookLMQuerying = true
                 case .notebookLMQueryEnded: self.isNotebookLMQuerying = false
