@@ -1,5 +1,6 @@
 // SpeakerPrompterView.swift
 // SpeakerPrompter v1.0 — 主 UI
+// Fixed: onKeyPress closure + Sendable
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -16,6 +17,32 @@ struct SpeakerPrompterView: View {
             loadView
         } else {
             prompterView
+                .focusable()
+                .onKeyPress { press in
+                    handleKeyPress(press)
+                }
+        }
+    }
+    
+    // MARK: - Key Handler
+    
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        switch press.key {
+        case .rightArrow:
+            speechTimer.nextSection()
+            return .handled
+        case .leftArrow:
+            speechTimer.previousSection()
+            return .handled
+        case .space:
+            toggleTimer()
+            return .handled
+        default:
+            if press.characters.lowercased() == "r" {
+                speechTimer.reset()
+                return .handled
+            }
+            return .ignored
         }
     }
     
@@ -68,27 +95,16 @@ struct SpeakerPrompterView: View {
     
     private var prompterView: some View {
         VStack(spacing: 0) {
-            // Top bar
             topBar
             
             HStack(spacing: 0) {
-                // Left: Agenda + Timer
-                agendaPanel
-                    .frame(width: 300)
-                
+                agendaPanel.frame(width: 300)
                 Divider()
-                
-                // Center: Current section + Talking Points
                 centerPanel
-                
                 Divider()
-                
-                // Right: Notes + TP checklist
-                rightPanel
-                    .frame(width: 280)
+                rightPanel.frame(width: 280)
             }
             
-            // Bottom: Timer bar
             timerBar
         }
         .background(Color(hex2: "0A0A0F"))
@@ -112,68 +128,51 @@ struct SpeakerPrompterView: View {
             
             Spacer()
             
-            // Timer controls
             HStack(spacing: 8) {
                 switch speechTimer.state {
                 case .idle:
                     Button(action: { speechTimer.start() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "play.fill")
-                            Text("開始演講")
-                        }
+                        HStack(spacing: 4) { Image(systemName: "play.fill"); Text("開始演講") }
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 16).padding(.vertical, 6)
                         .background(Color.green.opacity(0.8)).cornerRadius(6)
                     }.buttonStyle(.plain)
-                    
                 case .running:
                     Button(action: { speechTimer.pause() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pause.fill")
-                            Text("暫停")
-                        }
+                        HStack(spacing: 4) { Image(systemName: "pause.fill"); Text("暫停") }
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 16).padding(.vertical, 6)
                         .background(Color.yellow.opacity(0.8)).cornerRadius(6)
                     }.buttonStyle(.plain)
-                    
                 case .paused:
                     Button(action: { speechTimer.start() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "play.fill")
-                            Text("繼續")
-                        }
+                        HStack(spacing: 4) { Image(systemName: "play.fill"); Text("繼續") }
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 16).padding(.vertical, 6)
                         .background(Color.green.opacity(0.8)).cornerRadius(6)
                     }.buttonStyle(.plain)
-                    
                 case .finished:
                     Text("✅ 演講結束")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.green)
                 }
-                
                 if speechTimer.state != .idle {
                     Button(action: { speechTimer.reset() }) {
                         Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
+                            .font(.system(size: 12)).foregroundColor(.gray)
                     }.buttonStyle(.plain)
                 }
             }
             
             Button(action: { isLoaded = false; speechTimer.reset() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
+                Image(systemName: "xmark").font(.system(size: 12)).foregroundColor(.gray)
             }.buttonStyle(.plain)
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(Color(hex2: "111118"))
     }
     
-    // MARK: - Agenda Panel (Left)
+    // MARK: - Agenda Panel
     
     private var agendaPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -181,7 +180,6 @@ struct SpeakerPrompterView: View {
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(.gray)
                 .padding(.horizontal, 12).padding(.top, 8)
-            
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(Array(speechTimer.sections.enumerated()), id: \.element.id) { index, item in
@@ -195,23 +193,17 @@ struct SpeakerPrompterView: View {
     
     private func agendaRow(item: AgendaItem, index: Int) -> some View {
         HStack(spacing: 8) {
-            // Status icon
             Group {
                 if item.isCompleted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
                 } else if item.isActive {
-                    Image(systemName: "arrow.right.circle.fill")
-                        .foregroundColor(.orange)
+                    Image(systemName: "arrow.right.circle.fill").foregroundColor(.orange)
                 } else {
-                    Text("\(item.order)")
-                        .foregroundColor(.gray.opacity(0.5))
+                    Text("\(item.order)").foregroundColor(.gray.opacity(0.5))
                 }
             }
-            .font(.system(size: 12))
-            .frame(width: 20)
+            .font(.system(size: 12)).frame(width: 20)
             
-            // Title
             Text(item.title)
                 .font(.system(size: 13, weight: item.isActive ? .bold : .regular))
                 .foregroundColor(item.isActive ? .white : item.isCompleted ? .gray : .white.opacity(0.7))
@@ -220,17 +212,14 @@ struct SpeakerPrompterView: View {
             
             Spacer()
             
-            // Time
             VStack(alignment: .trailing, spacing: 1) {
                 Text("\(item.minutes)m")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(item.isActive ? .orange : .gray)
                 if item.isCompleted && item.actualSeconds > 0 {
-                    let actual = SpeechTimer.formatTime(item.actualSeconds)
-                    let overBudget = item.actualSeconds > item.minutes * 60
-                    Text(actual)
+                    Text(SpeechTimer.formatTime(item.actualSeconds))
                         .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(overBudget ? .red : .green)
+                        .foregroundColor(item.actualSeconds > item.minutes * 60 ? .red : .green)
                 }
             }
         }
@@ -244,11 +233,10 @@ struct SpeakerPrompterView: View {
         }
     }
     
-    // MARK: - Center Panel (Main)
+    // MARK: - Center Panel
     
     private var centerPanel: some View {
         VStack(spacing: 16) {
-            // Current section header
             if let section = speechTimer.currentSection {
                 VStack(spacing: 8) {
                     Text("第 \(section.order) 段")
@@ -260,7 +248,6 @@ struct SpeakerPrompterView: View {
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
                     
-                    // Section timer
                     HStack(spacing: 16) {
                         let remaining = speechTimer.sectionRemainingSeconds
                         let isOver = speechTimer.isSectionOvertime
@@ -273,7 +260,6 @@ struct SpeakerPrompterView: View {
                             .foregroundColor(.gray)
                     }
                     
-                    // Section progress
                     ProgressView(value: speechTimer.sectionProgress)
                         .tint(speechTimer.isSectionOvertime ? .red : speechTimer.sectionProgress > 0.8 ? .yellow : .green)
                         .frame(width: 300)
@@ -288,7 +274,6 @@ struct SpeakerPrompterView: View {
             
             Spacer()
             
-            // Navigation buttons
             if speechTimer.state == .running || speechTimer.state == .paused {
                 HStack(spacing: 20) {
                     Button(action: { speechTimer.previousSection() }) {
@@ -311,7 +296,6 @@ struct SpeakerPrompterView: View {
                 .padding(.bottom, 20)
             }
             
-            // Keyboard hints
             HStack(spacing: 16) {
                 keyHint("→", "下一段")
                 keyHint("←", "上一段")
@@ -322,10 +306,6 @@ struct SpeakerPrompterView: View {
         }
         .frame(maxWidth: .infinity)
         .background(Color(hex2: "0D0D14"))
-        .onKeyPress(.rightArrow) { speechTimer.nextSection(); return .handled }
-        .onKeyPress(.leftArrow) { speechTimer.previousSection(); return .handled }
-        .onKeyPress(.space) { toggleTimer(); return .handled }
-        .onKeyPress(characters: CharacterSet(charactersIn: "rR")) { speechTimer.reset(); return .handled }
     }
     
     private func keyHint(_ key: String, _ label: String) -> some View {
@@ -345,7 +325,6 @@ struct SpeakerPrompterView: View {
     private var rightPanel: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                // Talking Points
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("TALKING POINTS")
@@ -408,36 +387,30 @@ struct SpeakerPrompterView: View {
         .background(Color(hex2: "0D0D14"))
     }
     
-    // MARK: - Timer Bar (Bottom)
+    // MARK: - Timer Bar
     
     private var timerBar: some View {
         HStack(spacing: 16) {
-            // Total time
             HStack(spacing: 8) {
                 Image(systemName: "clock")
                     .font(.system(size: 12))
                     .foregroundColor(speechTimer.isOvertime ? .red : .white)
-                
                 Text(SpeechTimer.formatTime(speechTimer.totalElapsedSeconds))
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
                     .foregroundColor(speechTimer.isOvertime ? .red : .white)
-                
                 Text("/ \(speechConfig.totalMinutes)m")
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundColor(.gray)
             }
             
-            // Progress bar
             ProgressView(value: speechTimer.progress)
                 .tint(speechTimer.isOvertime ? .red : speechTimer.progress > 0.8 ? .yellow : .orange)
             
-            // Remaining
             let remaining = speechTimer.totalRemainingSeconds
             Text(speechTimer.isOvertime ? "+\(SpeechTimer.formatTime(speechTimer.totalElapsedSeconds - speechConfig.totalMinutes * 60))" : "-\(SpeechTimer.formatTime(remaining))")
                 .font(.system(size: 16, weight: .semibold, design: .monospaced))
                 .foregroundColor(speechTimer.isOvertime ? .red : remaining < 120 ? .yellow : .green)
             
-            // Section indicator
             Text("\(speechTimer.currentSectionIndex + 1)/\(speechTimer.sections.count)")
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(.orange)
@@ -514,8 +487,6 @@ struct SpeakerPrompterView: View {
         isLoaded = true
     }
 }
-
-// MARK: - Color Extension
 
 extension Color {
     init(hex2: String) {
