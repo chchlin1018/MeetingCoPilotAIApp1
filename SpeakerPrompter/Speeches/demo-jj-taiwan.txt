@@ -1,0 +1,27 @@
+[SPEECH]
+title=John & Jill's 台灣市場進入策略
+type=Partner Meeting
+total_minutes=30
+
+[AGENDA]
+1|開場 + 議程確認|2
+2|台灣市場機會分析|5
+3|競品分析（紐西蘭紅海）|4
+4|差異化策略：雙修配方|5
+5|單軸策略：家庭醫藥櫃 + 血糖管理|5
+6|Phase 1 執行計畫|4
+7|定價討論|3
+8|Q&A + Action Items|2
+
+[TP]
+MUST|確認「不競爭產地，競爭雙修配方」定位策略
+MUST|KOL 團購 + 群眾募資時程和預算確認
+MUST|定價策略：零售價/團購價/募資價 區間確認
+SHOULD|Nature's Gold 外用護膚線是否同步引進
+SHOULD|法規和進口流程確認
+NICE|通路佈局規劃（聖德科斯/大樹藥局）
+
+[NOTES]
+用英文開會，注意 Mark 的反應
+強調科學證據：A-Ring 甲基化化合物
+提到 4.8B AUD 市場規模和 4.5M 糖尿病人口

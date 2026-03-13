@@ -1,0 +1,27 @@
+[SPEECH]
+title=IDTF 開源工業數位雙胞胎架構
+type=Investor Pitch
+total_minutes=20
+
+[AGENDA]
+1|開場白 + 自我介紹|2
+2|工業數位雙胞胎市場痛點|3
+3|IDTF 架構介紹|5
+4|技術 Demo|5
+5|商業模式 + Roadmap|3
+6|Q&A|2
+
+[TP]
+MUST|強調 IDTF 與 AVEVA/Siemens 的差異化：開源 + 跨平台
+MUST|展示 TSMC 相關經驗和關係
+MUST|Seed Round 目標 $2M 和用途說明
+SHOULD|提到 2000+ GitHub Stars 社群認可
+SHOULD|NVIDIA Omniverse / OpenUSD 整合優勢
+NICE|半導體客戶案例（久元電子）
+NICE|未來 v5.0 WhisperKit 路線圖
+
+[NOTES]
+開場要強而有力，不要先說「大家好」
+用故事開始：「我在 AVEVA 做了 20 年...」
+Demo 時放慢速度，讓觀眾看清楚
+Q&A 時先重複問題再回答
