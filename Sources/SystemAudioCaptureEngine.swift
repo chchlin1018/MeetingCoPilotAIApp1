@@ -1,6 +1,6 @@
 // SystemAudioCaptureEngine.swift
 // MeetingCopilot v4.3.1 — Primary: ScreenCaptureKit System Audio Capture
-// + Diagnostics for PostMeetingLogger
+// + Browser meeting detection (Teams/Meet/Zoom/Webex Web) + Diagnostics
 
 import Foundation
 import ScreenCaptureKit
@@ -11,7 +11,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     
     nonisolated let engineType: AudioCaptureEngineType = .systemAudio
     
-    nonisolated var transcriptStream: AsyncStream<TranscriptSegment> {
+    nonisolated var transcriptStream: AsyncStream&lt;TranscriptSegment&gt; {
         AsyncStream { continuation in
             Task { await self.setStreamContinuation(continuation) }
         }
@@ -20,7 +20,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     nonisolated(unsafe) private var _state: AudioCaptureState = .idle
     nonisolated var state: AudioCaptureState { get { _state } }
     
-    private var streamContinuation: AsyncStream<TranscriptSegment>.Continuation?
+    private var streamContinuation: AsyncStream&lt;TranscriptSegment&gt;.Continuation?
     private var captureStream: SCStream?
     private var streamOutput: AudioStreamOutput?
     private var speechRecognizer: SFSpeechRecognizer?
@@ -28,6 +28,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let config: AudioCaptureConfiguration
     private var detectedMeetingApp: MeetingApp?
+    private var detectedBrowserBundleID: String?  // ★ 記錄實際的瀏覽器 bundleID
     private var audioConverter: AVAudioConverter?
     private var speechFormat: AVAudioFormat?
     private var lastInputFormat: AVAudioFormat?
@@ -41,7 +42,6 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
     
     var detectedAppName: String? { detectedMeetingApp?.displayName }
     
-    // ★ 診斷資訊
     var diagnosticInfo: EngineDiagnosticInfo {
         EngineDiagnosticInfo(
             engineType: "SystemAudio (ScreenCaptureKit)",
@@ -63,7 +63,7 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         super.init()
     }
     
-    private func setStreamContinuation(_ continuation: AsyncStream<TranscriptSegment>.Continuation) {
+    private func setStreamContinuation(_ continuation: AsyncStream&lt;TranscriptSegment&gt;.Continuation) {
         self.streamContinuation = continuation
     }
     
@@ -124,31 +124,69 @@ actor SystemAudioCaptureEngine: NSObject, AudioCaptureEngine {
         if r.supportsOnDeviceRecognition { print("  On-device recognition available (fallback)") }
     }
     
+    // MARK: - ★ Smart App Detection (Native + Browser Web)
+    
     private func findMeetingApp(in content: SCShareableContent) throws -> MeetingApp {
         guard config.autoDetectMeetingApp else { throw AudioCaptureError.noAudioSourceFound }
-        struct DA { let app: MeetingApp; let hasActive: Bool; let area: CGFloat; let priority: Int }
+        struct DA { let app: MeetingApp; let hasActive: Bool; let area: CGFloat; let priority: Int; let browserBundleID: String? }
         var cands: [DA] = []
+        
+        // ★ Step 1: 偵測原生 App（非瀏覽器）
         for app in content.applications {
             guard let ma = MeetingApp.from(bundleID: app.bundleIdentifier) else { continue }
             let wins = content.windows.filter { w in w.owningApplication?.bundleIdentifier == app.bundleIdentifier && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200 }
             let hasA = !wins.isEmpty; let area = wins.map { $0.frame.width * $0.frame.height }.max() ?? 0
-            cands.append(DA(app: ma, hasActive: hasA, area: area, priority: ma.detectionPriority))
+            cands.append(DA(app: ma, hasActive: hasA, area: area, priority: ma.detectionPriority, browserBundleID: nil))
         }
-        let browsers = ["com.google.Chrome","com.apple.Safari","com.microsoft.edgemac","org.mozilla.firefox"]
-        for app in content.applications where browsers.contains(app.bundleIdentifier) {
+        
+        // ★ Step 2: 偵測瀏覽器中的會議（Teams Web / Meet / Zoom Web / Webex Web）
+        for app in content.applications where BrowserMeetingDetector.browserBundles.contains(app.bundleIdentifier) {
+            let browserName = BrowserMeetingDetector.browserNames[app.bundleIdentifier] ?? "Browser"
             for w in content.windows where w.owningApplication?.bundleIdentifier == app.bundleIdentifier {
-                if let t = w.title, t.contains("Meet") || t.contains("meet.google.com") {
-                    cands.append(DA(app: .googleMeet, hasActive: true, area: w.frame.width * w.frame.height, priority: 1)); break
+                guard let title = w.title, w.isOnScreen, w.frame.width > 200, w.frame.height > 200 else { continue }
+                if let detectedApp = BrowserMeetingDetector.detectFromWindowTitle(title) {
+                    if !cands.contains(where: { $0.app == detectedApp }) {
+                        let area = w.frame.width * w.frame.height
+                        cands.append(DA(app: detectedApp, hasActive: true, area: area, priority: detectedApp.detectionPriority, browserBundleID: app.bundleIdentifier))
+                        print("  🌐 Browser meeting: \(detectedApp.displayName) on \(browserName) (title: \"\(title.prefix(50))\")")
+                    }
+                    break
                 }
             }
         }
+        
         let sorted = cands.sorted { a, b in if a.hasActive != b.hasActive { return a.hasActive }; if a.priority != b.priority { return a.priority < b.priority }; return a.area > b.area }
-        if let best = sorted.first(where: { $0.hasActive }) { return best.app }
+        if let best = sorted.first(where: { $0.hasActive }) {
+            detectedBrowserBundleID = best.browserBundleID  // ★ 記錄瀏覽器 bundleID
+            return best.app
+        }
         throw AudioCaptureError.noAudioSourceFound
     }
+    
+    // MARK: - ★ Find Main Window（支援瀏覽器會議）
+    
     private func findMainWindow(for app: MeetingApp, in content: SCShareableContent) throws -> SCWindow {
-        let wins = content.windows.filter { w in w.owningApplication?.bundleIdentifier == app.bundleIdentifier && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200 }
-        guard let main = wins.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else { throw AudioCaptureError.noAudioSourceFound }
+        // ★ 如果是瀏覽器會議，用記錄的瀏覽器 bundleID 來找視窗
+        let targetBundleID = detectedBrowserBundleID ?? app.bundleIdentifier
+        
+        let wins = content.windows.filter { w in
+            w.owningApplication?.bundleIdentifier == targetBundleID && w.isOnScreen && w.frame.width > 200 && w.frame.height > 200
+        }
+        
+        // ★ 如果是瀏覽器會議，優先找包含會議標題的視窗
+        if detectedBrowserBundleID != nil {
+            for w in wins {
+                if let title = w.title, BrowserMeetingDetector.detectFromWindowTitle(title) == app {
+                    print("  🌐 Using browser window: \"\(title.prefix(60))\" (\(Int(w.frame.width))x\(Int(w.frame.height)))")
+                    return w
+                }
+            }
+        }
+        
+        // Fallback: 最大視窗
+        guard let main = wins.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+            throw AudioCaptureError.noAudioSourceFound
+        }
         return main
     }
     
